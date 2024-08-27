@@ -1,0 +1,5 @@
+pillow == 10.4.0
+numpy == 2.1.0
+opencv-python == 4.10.0.84
+# easyocr == 1.7.1
+tesserocr == 2.7.0

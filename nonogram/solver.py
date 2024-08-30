@@ -51,15 +51,27 @@ def update_empty_maps(empty_maps: dict[int, np.ndarray], pos: int) -> dict[int, 
 @profile
 def verify_line(
     hints: list[int], line: np.ndarray,
-    empty_maps: dict[int, np.ndarray], last_filled: int, offset: int = 0
+    empty_maps: dict[int, np.ndarray], last_filled: int,
+    cache = None, offset: int = 0
 ) -> bool:
+    if cache is None:
+        cache = {}
+
+
+    cache_key = (len(hints), offset)
+    if cache_key in cache:
+        return cache[cache_key]
+
     if not hints:
-        return offset > last_filled
+        result = offset > last_filled
+        cache[cache_key] = result
+        return result
 
     current_hint = hints[0]
     empty_map = empty_maps[current_hint]
     size = line.shape[0]
     if size < current_hint:
+        cache[cache_key] = False
         return False
 
     for start, val in enumerate(line[offset:size - current_hint + 1], offset):
@@ -67,11 +79,14 @@ def verify_line(
         if (
             not empty_map[start]
             and (end == size or line[end] != FILLED)
-            and verify_line(hints[1:], line, empty_maps, last_filled, end + 1)
+            and verify_line(hints[1:], line, empty_maps, last_filled, cache, end + 1)
         ):
+            cache[cache_key] = True
             return True
         if val == FILLED:
+            cache[cache_key] = False
             return False
+    cache[cache_key] = False
     return False
 
 
@@ -86,6 +101,12 @@ def nothing_to_do(hints: list[int], line: np.ndarray) -> bool:
     return sum(hints) + len(hints) - 1 + max(hints) < line.shape[0]
 
 
+def invalidate_cache(cache: dict, idx: int):
+    keys_to_remove = [key for key in cache if key[1] <= idx]
+    for key in keys_to_remove:
+        del cache[key]
+
+
 @profile
 def solve_line(hints: list[int], line: np.ndarray) -> None:
     """Solve what is possible in-place, return True if any changes were made."""
@@ -97,16 +118,19 @@ def solve_line(hints: list[int], line: np.ndarray) -> None:
     if not verify_line(hints, line, empty_maps, last_filled):
         raise ValueError(f"Invalid line: {line_to_str(line)}; hints: {hints}")
 
+    cache = {}
     for idx, val in enumerate(line):
         if val == UNKNOWN:
             new_empty_maps = update_empty_maps(empty_maps, idx)
             line[idx] = FILLED
-            if not verify_line(hints, line, empty_maps, max(last_filled, idx)):
+            invalidate_cache(cache, idx)
+            if not verify_line(hints, line, empty_maps, max(last_filled, idx), cache):
                 line[idx] = EMPTY
                 empty_maps = new_empty_maps
                 continue
             line[idx] = EMPTY
-            if not verify_line(hints, line, new_empty_maps, last_filled):
+            invalidate_cache(cache, idx)
+            if not verify_line(hints, line, new_empty_maps, last_filled, cache):
                 line[idx] = FILLED
                 last_filled = max(last_filled, idx)
                 continue

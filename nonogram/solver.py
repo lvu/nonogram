@@ -23,69 +23,51 @@ def new_field(num_rows, num_cols) -> np.ndarray:
     return np.full((num_rows, num_cols), UNKNOWN, dtype=np.int8)
 
 
-def consec_runs(line: np.ndarray) -> list[Tuple[int, int]]:
+def get_consec_runs(line: np.ndarray) -> list[Tuple[int, int]]:
     nz, = np.nonzero(np.diff(line))
     splits = np.split(line, nz + 1)
     return [(s[0], s.shape[0]) for s in splits]
 
 
-def empty_intervals(line: np.ndarray) -> list[Tuple[int, int]]:
-    padded = np.zeros((line.shape[0] + 2,), dtype=line.dtype)
-    padded[1:-1] = line
-    diff = np.diff((padded == EMPTY) * 1)
-    starts, = np.nonzero(diff == 1)
-    ends, = np.nonzero(diff == -1)
-    return [(start, end) for start, end in zip(starts, ends)]
+def get_last_filled(line: np.ndarray) -> int:
+    return np.max(np.nonzero(line == FILLED), initial = -1)
 
 
-def update_empty_intervals(empty: list[Tuple[int, int]], pos: int) -> None:
-    if not empty or pos < empty[0][0] - 1:
-        empty.insert(0, (pos, pos + 1))
-        return
-
-    starts = [start for start, _ in empty]
-    idx = bisect_left(starts, pos)
-    if idx > 0 and idx < len(empty) and empty[idx - 1][1] == pos == empty[idx][0] - 1:
-        empty[idx - 1] = (empty[idx - 1][0], empty[idx][1])
-        del empty[idx]
-    elif idx > 0 and empty[idx - 1][1] == pos:
-        empty[idx - 1] = (empty[idx - 1][0], pos + 1)
-    elif idx < len(empty) and pos == empty[idx][0] - 1:
-        empty[idx] = (pos, empty[idx][1])
-    else:
-        empty.insert(idx, (pos, pos + 1))
+def build_empty_maps(hints: list[int], line: np.ndarray) -> dict[int, np.ndarray]:
+    empties = line == EMPTY
+    return {
+        hint: np.convolve(empties, np.ones(hint, dtype=bool), mode='valid')
+        for hint in set(hints)
+    }
 
 
-@profile
-def intersects_empty(empty: list[Tuple[int, int]], start: int, end: int) -> bool:
-    starts = [s for s, _ in empty]
-    idx = bisect_left(starts, start)
-    return idx < len(empty) and end > empty[idx][0]
+def update_empty_maps(empty_maps: dict[int, np.ndarray], pos: int) -> dict[int, np.ndarray]:
+    result = {hint: empty_map.copy() for hint, empty_map in empty_maps.items()}
+    for hint, empty_map in result.items():
+        empty_map[max(0, pos - hint + 1):pos + 1] = True
+    return result
 
 
 @profile
 def verify_line(
     hints: list[int], line: np.ndarray,
-    empty: Optional[list[Tuple[int, int]]] = None, empty_offset: int = 0
+    empty_maps: dict[int, np.ndarray], last_filled: int, offset: int = 0
 ) -> bool:
     if not hints:
-        return bool(np.all(line != FILLED))
-
-    if empty is None:
-        empty = empty_intervals(line)
+        return offset > last_filled
 
     current_hint = hints[0]
+    empty_map = empty_maps[current_hint]
     size = line.shape[0]
     if size < current_hint:
         return False
 
-    for start, val in enumerate(line[:size - current_hint + 1]):
+    for start, val in enumerate(line[offset:size - current_hint + 1], offset):
         end = start + current_hint
         if (
-            val != EMPTY
-            and not intersects_empty(empty, empty_offset + start, empty_offset + end)
+            not empty_map[start]
             and (end == size or line[end] != FILLED)
-            and verify_line(hints[1:], line[end + 1:], empty, empty_offset + end + 1)
+            and verify_line(hints[1:], line, empty_maps, last_filled, end + 1)
         ):
             return True
         if val == FILLED:
@@ -93,83 +75,43 @@ def verify_line(
     return False
 
 
-def only_way(hints: list[int], line: np.ndarray) -> Optional[int]:
-    one_way = False
-    for n_hints in range(1, len(hints) + 1):
-        if verify_line(hints[:n_hints], line):
-            if not one_way:
-                one_way = True
-            else:
-                return None
-        elif one_way:
-            return n_hints - 1
-    assert one_way
-    return len(hints)
-
-
-def fill_overlaps(hints: list[int], line: np.ndarray) -> None:
-    orig_line = line.copy()
-    mask = np.full((hints[0],), 1)
-    for hint_idx, hint in enumerate(hints[1:], 2):
-        mask = np.append(mask, 0)
-        mask = np.concatenate((mask, np.full((hint,), hint_idx)))
-    left = np.pad(mask, (0, line.shape[0] - mask.shape[0]), constant_values=0)
-    right = np.pad(mask, (line.shape[0] - mask.shape[0], 0), constant_values=0)
-    overlap = (left == right) & (right != 0)
-    if np.any(line[overlap] == EMPTY):
-        raise RuntimeError(f"Invalid overlap for line {line_to_str(line)}; hints: {hints}")
-    line[overlap] = FILLED
-    if not verify_line(hints, line):
-        raise ValueError(f"Overlap resulted in invalid line: {line_to_str(line)}; src: {line_to_str(orig_line)}, hints: {hints}")
+def nothing_to_do(hints: list[int], line: np.ndarray) -> bool:
+    if np.any(line == FILLED):
+        return False
+    unknown_runs = [size for val, size in get_consec_runs(line) if val == UNKNOWN]
+    if not unknown_runs:
+        return True  # all empty
+    if not hints:
+        return False  # will be all empty
+    return sum(hints) + len(hints) - 1 + max(hints) < line.shape[0]
 
 
 @profile
 def solve_line(hints: list[int], line: np.ndarray) -> None:
     """Solve what is possible in-place, return True if any changes were made."""
-    if not verify_line(hints, line):
+    if nothing_to_do(hints, line):
+        return
+
+    empty_maps = build_empty_maps(hints, line)
+    last_filled: int = get_last_filled(line)
+    if not verify_line(hints, line, empty_maps, last_filled):
         raise ValueError(f"Invalid line: {line_to_str(line)}; hints: {hints}")
 
-    nz, = np.nonzero(line != EMPTY)
-    if len(nz) > 1:
-        line = line[:nz[-1] + 1]
-    if len(nz) > 0:
-        line = line[nz[0]:]
-
-    nz, = np.nonzero(np.diff((line == EMPTY) * 1) == 1)
-    parts = [p for p in np.split(line, nz + 1) if np.any(p != EMPTY)]
-    if len(parts) > 1:
-        if np.any(parts[0] == FILLED) and (num_hints := only_way(hints, parts[0])) is not None:
-            solve_line(hints[:num_hints], parts[0])
-            solve_line(hints[num_hints:], line[parts[0].shape[0]:])
-            return
-        if np.any(parts[-1] == FILLED) and (num_hints := only_way(hints[::-1], parts[-1][::-1])) is not None:
-            solve_line(hints[-num_hints:], parts[-1])
-            solve_line(hints[:-num_hints], line[:sum(p.shape[0] for p in parts[:-1])])
-            return
-
-    if np.sum(line == FILLED) == sum(hints):
-        line[line == UNKNOWN] = EMPTY
-        return
-
-    if np.all(line == UNKNOWN) and sum(hints) + len(hints) + max(hints) - 1 < line.shape[0]:
-        return
-
-    empty = empty_intervals(line)
     for idx, val in enumerate(line):
         if val == UNKNOWN:
+            new_empty_maps = update_empty_maps(empty_maps, idx)
             line[idx] = FILLED
-            if not verify_line(hints, line, empty):
+            if not verify_line(hints, line, empty_maps, max(last_filled, idx)):
                 line[idx] = EMPTY
-                update_empty_intervals(empty, idx)
+                empty_maps = new_empty_maps
                 continue
             line[idx] = EMPTY
-            empty_copy = empty[:]
-            update_empty_intervals(empty_copy, idx)
-            if not verify_line(hints, line, empty_copy):
+            if not verify_line(hints, line, new_empty_maps, last_filled):
                 line[idx] = FILLED
+                last_filled = max(last_filled, idx)
                 continue
             line[idx] = UNKNOWN
-    if not verify_line(hints, line, empty):
+    if not verify_line(hints, line, empty_maps, last_filled):
         raise ValueError(f"Solver resulted in invalid line: {line_to_str(line)}; hints: {hints}")
 
 

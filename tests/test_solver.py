@@ -1,17 +1,26 @@
 from unittest import TestCase
 
+import numpy as np
+from numpy.testing import assert_array_equal
+
 from nonogram.solver import (
-    empty_intervals,
+    build_empty_maps,
+    get_last_filled,
     line_to_str,
     new_field,
-    fill_overlaps,
-    only_way,
     solve_by_line,
     solve_line,
     str_to_line,
-    update_empty_intervals,
     verify_line,
 )
+
+
+def nomap_only_way(hints: list[int], line: np.ndarray):
+    return only_way(hints, line, build_empty_maps(hints, line), get_last_filled(line))
+
+
+def nomap_verify_line(hints: list[int], line: np.ndarray):
+    return verify_line(hints, line, build_empty_maps(hints, line), get_last_filled(line))
 
 
 class SolverTestCase(TestCase):
@@ -21,45 +30,19 @@ class SolverTestCase(TestCase):
         self.assertEqual(line_to_str(line), result_str)
 
     def test_verify_line(self):
-        self.assertTrue(verify_line([1], str_to_line(".......")))
-        self.assertTrue(verify_line([2, 3], str_to_line("......")))
-        self.assertTrue(verify_line([2, 3], str_to_line("X..X.*.X")))
-        self.assertTrue(verify_line([2, 3], str_to_line("X...X..*.X")))
-        self.assertFalse(verify_line([2, 3], str_to_line("X..X*.X")))
-        self.assertFalse(verify_line([2, 3], str_to_line("..*...")))
-        self.assertFalse(verify_line([2, 3], str_to_line("X..*...X")))
-        self.assertFalse(verify_line([2, 3], str_to_line("X..*...X")))
-        self.assertFalse(verify_line([2, 3], str_to_line("*..*X...")))
-        self.assertFalse(verify_line([2, 1], str_to_line("*..X.*.X*")))
-        self.assertFalse(verify_line([2, 1], str_to_line(".*.X.*.X*")))
-        self.assertFalse(verify_line([2, 1], str_to_line("XXXX.*.XX")))
-        self.assertTrue(verify_line([1, 2], str_to_line("*..*X..")))
-
-    def test_empty_intervals(self):
-        empty = empty_intervals(str_to_line("*XX..*..XX"))
-        self.assertEqual(empty, [(1, 3), (8, 10)])
-        update_empty_intervals(empty, 0)
-        self.assertEqual(empty, [(0, 3), (8, 10)])
-        update_empty_intervals(empty, 3)
-        self.assertEqual(empty, [(0, 4), (8, 10)])
-        update_empty_intervals(empty, 6)
-        self.assertEqual(empty, [(0, 4), (6, 7), (8, 10)])
-        update_empty_intervals(empty, 7)
-        self.assertEqual(empty, [(0, 4), (6, 10)])
-
-    def test_only_way(self):
-        self.assertEqual(only_way([1, 2], str_to_line(".*.....*.X")), 2)
-        self.assertEqual(only_way([1, 2, 3], str_to_line(".*..*.X")), 2)
-        self.assertIsNone(only_way([1, 2], str_to_line("...*X")))
-
-    def test_fill_overlaps(self):
-        line = str_to_line("." * 10)
-        fill_overlaps([3, 1, 2], line)
-        self.assertEqual(line_to_str(line), "..*.......")
-
-        line = str_to_line("." * 15)
-        fill_overlaps([5, 2, 4], line)
-        self.assertEqual(line_to_str(line), "..***......**..")
+        self.assertTrue(nomap_verify_line([1], str_to_line(".......")))
+        self.assertTrue(nomap_verify_line([2, 3], str_to_line("......")))
+        self.assertTrue(nomap_verify_line([2, 3], str_to_line("X..X.*.X")))
+        self.assertTrue(nomap_verify_line([2, 3], str_to_line("X...X..*.X")))
+        self.assertFalse(nomap_verify_line([2, 3], str_to_line("X..X*.X")))
+        self.assertFalse(nomap_verify_line([2, 3], str_to_line("..*...")))
+        self.assertFalse(nomap_verify_line([2, 3], str_to_line("X..*...X")))
+        self.assertFalse(nomap_verify_line([2, 3], str_to_line("X..*...X")))
+        self.assertFalse(nomap_verify_line([2, 3], str_to_line("*..*X...")))
+        self.assertFalse(nomap_verify_line([2, 1], str_to_line("*..X.*.X*")))
+        self.assertFalse(nomap_verify_line([2, 1], str_to_line(".*.X.*.X*")))
+        self.assertFalse(nomap_verify_line([2, 1], str_to_line("XXXX.*.XX")))
+        self.assertTrue(nomap_verify_line([1, 2], str_to_line("*..*X..")))
 
     def test_solve_line(self):
         self.check_solve_line([4], ".....*..", "XX..**..")

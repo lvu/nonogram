@@ -1,8 +1,7 @@
 from unittest import TestCase
 
-import numpy as np
-
 from nonogram.solver import (
+    empty_intervals,
     line_to_str,
     new_field,
     fill_overlaps,
@@ -10,6 +9,7 @@ from nonogram.solver import (
     solve_by_line,
     solve_line,
     str_to_line,
+    update_empty_intervals,
     verify_line,
 )
 
@@ -34,6 +34,18 @@ class SolverTestCase(TestCase):
         self.assertFalse(verify_line([2, 1], str_to_line(".*.X.*.X*")))
         self.assertFalse(verify_line([2, 1], str_to_line("XXXX.*.XX")))
         self.assertTrue(verify_line([1, 2], str_to_line("*..*X..")))
+
+    def test_empty_intervals(self):
+        empty = empty_intervals(str_to_line("*XX..*..XX"))
+        self.assertEqual(empty, [(1, 3), (8, 10)])
+        update_empty_intervals(empty, 0)
+        self.assertEqual(empty, [(0, 3), (8, 10)])
+        update_empty_intervals(empty, 3)
+        self.assertEqual(empty, [(0, 4), (8, 10)])
+        update_empty_intervals(empty, 6)
+        self.assertEqual(empty, [(0, 4), (6, 7), (8, 10)])
+        update_empty_intervals(empty, 7)
+        self.assertEqual(empty, [(0, 4), (6, 10)])
 
     def test_only_way(self):
         self.assertEqual(only_way([1, 2], str_to_line(".*.....*.X")), 2)

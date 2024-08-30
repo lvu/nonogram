@@ -1,3 +1,5 @@
+from bisect import bisect_left
+from itertools import groupby
 from typing import Optional, Tuple
 
 import numpy as np
@@ -27,23 +29,63 @@ def consec_runs(line: np.ndarray) -> list[Tuple[int, int]]:
     return [(s[0], s.shape[0]) for s in splits]
 
 
+def empty_intervals(line: np.ndarray) -> list[Tuple[int, int]]:
+    padded = np.zeros((line.shape[0] + 2,), dtype=line.dtype)
+    padded[1:-1] = line
+    diff = np.diff((padded == EMPTY) * 1)
+    starts, = np.nonzero(diff == 1)
+    ends, = np.nonzero(diff == -1)
+    return [(start, end) for start, end in zip(starts, ends)]
+
+
+def update_empty_intervals(empty: list[Tuple[int, int]], pos: int) -> None:
+    if not empty or pos < empty[0][0] - 1:
+        empty.insert(0, (pos, pos + 1))
+        return
+
+    starts = [start for start, _ in empty]
+    idx = bisect_left(starts, pos)
+    if idx > 0 and idx < len(empty) and empty[idx - 1][1] == pos == empty[idx][0] - 1:
+        empty[idx - 1] = (empty[idx - 1][0], empty[idx][1])
+        del empty[idx]
+    elif idx > 0 and empty[idx - 1][1] == pos:
+        empty[idx - 1] = (empty[idx - 1][0], pos + 1)
+    elif idx < len(empty) and pos == empty[idx][0] - 1:
+        empty[idx] = (pos, empty[idx][1])
+    else:
+        empty.insert(idx, (pos, pos + 1))
+
+
 @profile
-def verify_line(hints: list[int], line: np.ndarray) -> bool:
+def intersects_empty(empty: list[Tuple[int, int]], start: int, end: int) -> bool:
+    starts = [s for s, _ in empty]
+    idx = bisect_left(starts, start)
+    return idx < len(empty) and end > empty[idx][0]
+
+
+@profile
+def verify_line(
+    hints: list[int], line: np.ndarray,
+    empty: Optional[list[Tuple[int, int]]] = None, empty_offset: int = 0
+) -> bool:
     if not hints:
         return bool(np.all(line != FILLED))
+
+    if empty is None:
+        empty = empty_intervals(line)
 
     current_hint = hints[0]
     size = line.shape[0]
     if size < current_hint:
         return False
 
-    has_empty_view = np.convolve((line == EMPTY).astype(int), np.ones(current_hint, dtype=int), mode='valid')
-    for start, (val, has_empty) in enumerate(zip(line[:size - current_hint + 1], has_empty_view, strict=True)):
+    for start, val in enumerate(line[:size - current_hint + 1]):
         end = start + current_hint
         if (
-            not has_empty
+            val != EMPTY
+            and not intersects_empty(empty, empty_offset + start, empty_offset + end)
             and (end == size or line[end] != FILLED)
-            and verify_line(hints[1:], line[end + 1:])
+            and verify_line(hints[1:], line[end + 1:], empty, empty_offset + end + 1)
         ):
             return True
         if val == FILLED:
@@ -112,18 +154,22 @@ def solve_line(hints: list[int], line: np.ndarray) -> None:
     if np.all(line == UNKNOWN) and sum(hints) + len(hints) + max(hints) - 1 < line.shape[0]:
         return
 
+    empty = empty_intervals(line)
     for idx, val in enumerate(line):
         if val == UNKNOWN:
             line[idx] = FILLED
-            if not verify_line(hints, line):
+            if not verify_line(hints, line, empty):
                 line[idx] = EMPTY
+                update_empty_intervals(empty, idx)
                 continue
             line[idx] = EMPTY
-            if not verify_line(hints, line):
+            empty_copy = empty[:]
+            update_empty_intervals(empty_copy, idx)
+            if not verify_line(hints, line, empty_copy):
                 line[idx] = FILLED
                 continue
             line[idx] = UNKNOWN
-    if not verify_line(hints, line):
+    if not verify_line(hints, line, empty):
         raise ValueError(f"Solver resulted in invalid line: {line_to_str(line)}; hints: {hints}")
 
 

@@ -140,11 +140,6 @@ def find_number_rects(img: np.ndarray, direction: Direction) -> list[list[[Rect]
     line_len = len(result[0])
     for idx, line in enumerate(result[1:], 1):
         if len(line) != line_len:
-            print(result[idx - 1])
-            print(result[idx])
-            print(result[idx + 1])
-            cv2.imshow('image', img)
-            cv2.waitKey(0)
             raise RuntimeError(f"Line {idx} has length {len(line)}, not {line_len}")
     return result
 
@@ -198,15 +193,7 @@ def read_image(fname: Optional[str]):
     img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
     row_numbers_rect, col_numbers_rect = get_number_areas(img)
 
-    cols = parse_numbers(extract_rect(img, col_numbers_rect), Direction.cols, ocr)
-    for line in cols:
-        print(line)
-
-    print("")
-
-    rows = parse_numbers(extract_rect(img, row_numbers_rect), Direction.rows, ocr)
-    for line in rows:
-        print(line)
-
-    cv2.imshow('image', img)
-    cv2.waitKey(0)
+    return {
+        "row_hints": parse_numbers(extract_rect(img, row_numbers_rect), Direction.rows, ocr),
+        "col_hints": parse_numbers(extract_rect(img, col_numbers_rect), Direction.cols, ocr),
+    }

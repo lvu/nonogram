@@ -16,17 +16,17 @@ from nonogram.solver import (
 
 
 def nomap_only_way(hints: list[int], line: np.ndarray):
-    return only_way(hints, line, build_empty_maps(hints, line), get_last_filled(line))
+    return only_way(tuple(hints), line, build_empty_maps(hints, line), get_last_filled(line))
 
 
 def nomap_verify_line(hints: list[int], line: np.ndarray):
-    return verify_line(hints, line, build_empty_maps(hints, line), get_last_filled(line))
+    return verify_line(tuple(hints), tuple(line), build_empty_maps(hints, line), get_last_filled(line))
 
 
 class SolverTestCase(TestCase):
     def check_solve_line(self, hints, orig_str, result_str):
         line = str_to_line(orig_str)
-        solve_line(hints, line)
+        solve_line(tuple(hints), line)
         self.assertEqual(line_to_str(line), result_str)
 
     def test_verify_line(self):
@@ -51,8 +51,8 @@ class SolverTestCase(TestCase):
         self.check_solve_line([2, 1], "...X.*.X*", "XXXX.*.X*")
 
     def test_solve_by_line_full(self):
-        row_hints = [[5], [1], [5], [1], [5]]
-        col_hints = [[3, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 3]]
+        row_hints = [tuple(line) for line in [[5], [1], [5], [1], [5]]]
+        col_hints = [tuple(line) for line in [[3, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 3]]]
         field = new_field(len(row_hints), len(col_hints))
         solve_by_line(row_hints, col_hints, field)
         self.assertEqual([line_to_str(line) for line in field], [

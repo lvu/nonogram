@@ -33,7 +33,7 @@ def get_last_filled(line: np.ndarray) -> int:
     return np.max(np.nonzero(line == FILLED), initial = -1)
 
 
-def build_empty_maps(hints: list[int], line: np.ndarray) -> dict[int, np.ndarray]:
+def build_empty_maps(hints: tuple[int], line: np.ndarray) -> dict[int, np.ndarray]:
     empties = line == EMPTY
     return {
         hint: np.convolve(empties, np.ones(hint, dtype=bool), mode='valid')
@@ -53,13 +53,13 @@ verify_line_cache = {}
 
 @profile
 def verify_line(
-    hints: list[int], line: tuple[int],
+    hints: tuple[int], line: tuple[int],
     empty_maps: dict[int, np.ndarray], last_filled: int,
     offset: int = 0
 ) -> bool:
-    cache_key = (tuple(hints), line[offset:])
-    if cache_key in verify_line_cache:
-        return verify_line_cache[cache_key]
+    cache_key = (hints, line[offset:])
+    if (hit := verify_line_cache.get(cache_key)) is not None:
+        return hit
 
     if not hints:
         result = offset > last_filled
@@ -89,27 +89,26 @@ def verify_line(
     return False
 
 
-def nothing_to_do(hints: list[int], line: np.ndarray) -> bool:
-    if np.any(line == FILLED):
-        return False
-    unknown_runs = [size for val, size in get_consec_runs(line) if val == UNKNOWN]
-    if not unknown_runs:
-        return True  # all empty
-    if not hints:
-        return False  # will be all empty
-    return sum(hints) + len(hints) - 1 + max(hints) < line.shape[0]
+solve_line_cache = {}
 
 
 @profile
-def solve_line(hints: list[int], line: np.ndarray) -> None:
+def solve_line(hints: tuple[int], line: np.ndarray) -> None:
     """Solve what is possible in-place, return True if any changes were made."""
-    if nothing_to_do(hints, line):
+
+    cache_key = (hints, tuple(line))
+    if (hit := solve_line_cache.get(cache_key)) is not None:
+        if isinstance(hit, Exception):
+            raise hit
+        line[:] = hit
         return
 
     empty_maps = build_empty_maps(hints, line)
     last_filled: int = get_last_filled(line)
     if not verify_line(hints, tuple(line), empty_maps, last_filled):
-        raise ValueError(f"Invalid line: {line_to_str(line)}; hints: {hints}")
+        err = ValueError(f"Invalid line: {line_to_str(line)}; hints: {hints}")
+        solve_line_cache[cache_key] = err
+        raise err
 
     for idx, val in enumerate(line):
         if val == UNKNOWN:
@@ -125,12 +124,16 @@ def solve_line(hints: list[int], line: np.ndarray) -> None:
                 last_filled = max(last_filled, idx)
                 continue
             line[idx] = UNKNOWN
-    if not verify_line(hints, tuple(line), empty_maps, last_filled):
-        raise ValueError(f"Solver resulted in invalid line: {line_to_str(line)}; hints: {hints}")
+    if verify_line(hints, tuple(line), empty_maps, last_filled):
+        solve_line_cache[cache_key] = line.copy()
+    else:
+        err = ValueError(f"Solver resulted in invalid line: {line_to_str(line)}; hints: {hints}")
+        solve_line_cache[cache_key] = err
+        raise err
 
 
 @profile
-def solve_by_line(row_hints: list[list[int]], col_hints: list[list[int]], field: np.ndarray) -> None:
+def solve_by_line(row_hints: list[tuple[int]], col_hints: list[tuple[int]], field: np.ndarray) -> None:
     """
     Try solving the nonogram inplace.
 
@@ -162,11 +165,51 @@ def solve_by_line(row_hints: list[list[int]], col_hints: list[list[int]], field:
             changed_cols.update(np.nonzero(orig_line != line)[0])
         if not changed_cols:
             break
-    print(f"Total cache size: {len(verify_line_cache)}")
+
+
+MAX_DEPTH = 2
+
+
+@profile
+def solve(row_hints: list[tuple[int]], col_hints: list[tuple[int]], field: np.ndarray, max_depth = MAX_DEPTH) -> list[np.ndarray]:
+    solve_by_line(row_hints, col_hints, field)
+    if np.all(field != UNKNOWN):
+        return [field]
+    result = []
+    if max_depth == 0:
+        return result
+    for idxs, val in np.ndenumerate(field):
+        if val != UNKNOWN:
+            continue
+        field_copy = field.copy()
+        field_copy[idxs] = EMPTY
+        try:
+            result.extend(solve(row_hints, col_hints, field_copy, max_depth - 1))
+        except ValueError:
+            field[idxs] = FILLED
+            continue
+        field_copy = field.copy()
+        field_copy[idxs] = FILLED
+        try:
+            result.extend(solve(row_hints, col_hints, field_copy, max_depth - 1))
+        except ValueError:
+            field[idxs] = EMPTY
+            continue
+    if max_depth == MAX_DEPTH:
+        print("Not solved; found so far:")
+        for line in field:
+            print(line_to_str(line))
+    result.sort(key=field_to_str)
+    result = [next(grp) for _, grp in groupby(result, field_to_str)]
+    return result
 
 
 def line_to_str(line: np.ndarray) -> str:
     return ''.join(VALUE_STR_MAP[c] for c in line)
+
+
+def field_to_str(field: np.ndarray) -> str:
+    return "\n".join(map(line_to_str, field))
 
 
 def str_to_line(s: str) -> np.ndarray:

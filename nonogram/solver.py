@@ -3,7 +3,6 @@ from itertools import groupby
 from typing import Optional, Tuple
 
 import numpy as np
-from line_profiler import profile
 
 
 FILLED = 1
@@ -51,7 +50,6 @@ def update_empty_maps(empty_maps: dict[int, np.ndarray], pos: int) -> dict[int, 
 verify_line_cache = {}
 
 
-@profile
 def verify_line(
     hints: tuple[int], line: tuple[int],
     empty_maps: dict[int, np.ndarray], last_filled: int,
@@ -92,7 +90,6 @@ def verify_line(
 solve_line_cache = {}
 
 
-@profile
 def solve_line(hints: tuple[int], line: np.ndarray) -> None:
     """Solve what is possible in-place, return True if any changes were made."""
 
@@ -132,7 +129,6 @@ def solve_line(hints: tuple[int], line: np.ndarray) -> None:
         raise err
 
 
-@profile
 def solve_by_line(row_hints: list[tuple[int]], col_hints: list[tuple[int]], field: np.ndarray) -> None:
     """
     Try solving the nonogram inplace.
@@ -170,7 +166,6 @@ def solve_by_line(row_hints: list[tuple[int]], col_hints: list[tuple[int]], fiel
 MAX_DEPTH = 2
 
 
-@profile
 def solve(row_hints: list[tuple[int]], col_hints: list[tuple[int]], field: np.ndarray, max_depth = MAX_DEPTH) -> list[np.ndarray]:
     solve_by_line(row_hints, col_hints, field)
     if np.all(field != UNKNOWN):

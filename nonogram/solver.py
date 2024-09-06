@@ -91,7 +91,7 @@ solve_line_cache = {}
 
 
 def solve_line(hints: tuple[int], line: np.ndarray) -> None:
-    """Solve what is possible in-place, return True if any changes were made."""
+    """Solve what is possible in-place, throwing an exception if a contradiction is met."""
 
     cache_key = (hints, tuple(line))
     if (hit := solve_line_cache.get(cache_key)) is not None:

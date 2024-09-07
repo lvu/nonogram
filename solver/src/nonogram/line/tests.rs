@@ -105,20 +105,20 @@ fn verify_split_with_fine_left() {
 #[test]
 fn solve_simple_overlap_and_unreachable() {
     let mut ol = OwnedLine::create(vec![4], ".....*..").unwrap();
-    ol.solve();
+    assert_eq!(ol.solve(), HashSet::from([0, 1, 4]));
     assert_eq!(ol.to_string(), "XX..**..");
 }
 
 #[test]
 fn solve_fill_with_ambiguity() {
     let mut ol = OwnedLine::create(vec![1, 2], "...*X..").unwrap();
-    ol.solve();
+    assert_eq!(ol.solve(), HashSet::from([1]));
     assert_eq!(ol.to_string(), ".X.*X..");
 }
 
 #[test]
 fn solve_empties_with_definite_chunks() {
     let mut ol = OwnedLine::create(vec![2, 1], "...X.*.X*").unwrap();
-    ol.solve();
+    assert_eq!(ol.solve(), HashSet::from([0, 1, 2]));
     assert_eq!(ol.to_string(), "XXXX.*.X*");
 }

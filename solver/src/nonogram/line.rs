@@ -1,23 +1,18 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 mod tests;
 
-use ndarray::{s, ArrayView1, ArrayViewMut1};
+use ndarray::{s, Array1, ArrayView1, ArrayViewMut1};
 
-use super::common::{LineHints, FILLED, UNKNOWN, EMPTY};
+use super::common::{line_to_str, LineHints, EMPTY, FILLED, UNKNOWN};
 
 pub trait Line {
     fn hints(&self) -> &LineHints;
     fn cells(&self) -> ArrayView1<i8>;
 
     fn to_string(&self) -> String {
-        self.cells().iter().map(|x| match *x {
-            UNKNOWN => '.',
-            FILLED => '*',
-            EMPTY => 'X',
-            _ => panic!("Invalid value: {x}")
-        }).collect()
+        line_to_str(self.cells())
     }
 
     fn do_verify(&self, hint_idx: usize, cells_offset: usize) -> bool {
@@ -38,7 +33,7 @@ pub trait Line {
         for (start, &val) in cells.slice(s![..size - current_hint + 1]).indexed_iter() {
             let end = start + current_hint;
             if cells.slice(s![start..end]).iter().all(|&x| x != EMPTY)
-                && (end == size || cells[end] != FILLED) 
+                && (end == size || cells[end] != FILLED)
                 && self.do_verify(hint_idx + 1, cells_offset + end + 1)
             {
                 return true;
@@ -59,12 +54,28 @@ pub trait LineMut: Line {
     fn cells_mut(&mut self) -> ArrayViewMut1<i8>;
 
     /// Solves the line to the extent currently possbile, in-place.
-    /// 
-    /// Returns a set of indexes updated.
-    /// 
-    /// The line should be valid (`self.verify()` should be `true`) before calling.
-    fn solve(&mut self) -> HashSet<usize> {
-        debug_assert!(self.verify());
+    ///
+    /// Returns a set of indexes updated if the line wasn't controversial, None therwise.
+    fn solve(&mut self, cache: &mut SolveCache) -> Option<HashSet<usize>> {
+        let cache_key = SolveCacheKey {
+            hints: self.hints().clone(),
+            cells: self.cells().clone().into_owned()
+        };
+        if let Some(cache_value) = cache.get(&cache_key) {
+            unsafe {cache_hits += 1;}
+            match cache_value {
+                Some((result, new_cells)) => {
+                    self.cells_mut().assign(new_cells);
+                    return Some(result.clone());
+                },
+                None => return None
+            }
+        }
+        unsafe {cache_misses += 1;}
+        if !self.verify() {
+            cache.insert(cache_key, None);
+            return None;
+        }
         let mut result = HashSet::new();
         for idx in 0..self.cells().len() {
             if self.cells()[idx] != UNKNOWN {
@@ -88,6 +99,17 @@ pub trait LineMut: Line {
             self.cells_mut()[idx] = UNKNOWN;
         }
         debug_assert!(self.verify());
-        result
+        cache.insert(cache_key, Some((result.clone(), self.cells().clone().to_owned())));
+        Some(result)
     }
 }
+
+#[derive(Hash, Eq, PartialEq)]
+pub struct SolveCacheKey {
+    hints: LineHints,
+    cells: Array1<i8>
+}
+
+pub type SolveCache = HashMap<SolveCacheKey, Option<(HashSet<usize>, Array1<i8>)>>;
+pub static mut cache_hits: usize = 0;
+pub static mut cache_misses: usize = 0;

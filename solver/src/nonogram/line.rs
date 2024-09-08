@@ -9,7 +9,7 @@ use super::common::{line_to_str, LineHints, EMPTY, FILLED, UNKNOWN};
 
 pub trait Line {
     fn hints(&self) -> &LineHints;
-    fn cells(&self) -> ArrayView1<i8>;
+    fn cells(&self) -> ArrayView1<u8>;
 
     fn to_string(&self) -> String {
         line_to_str(self.cells())
@@ -51,27 +51,41 @@ pub trait Line {
 }
 
 pub trait LineMut: Line {
-    fn cells_mut(&mut self) -> ArrayViewMut1<i8>;
+    fn cells_mut(&mut self) -> ArrayViewMut1<u8>;
+
+    fn cache_key(&self) -> SolveCacheKey {
+        let mut cells = Vec::with_capacity(self.cells().len() / 4 + 1);
+        let mut cnt: u8 = 0;
+        let mut acc: u8 = 0;
+        for &val in self.cells() {
+            acc = (acc << 2) | val;
+            cnt += 1;
+            if (cnt == 4) {
+                cells.push(acc);
+                cnt = 0;
+                acc = 0;
+            }
+        }
+        cells.push(acc);
+        SolveCacheKey { hints: self.hints().clone(), cells }
+    }
 
     /// Solves the line to the extent currently possbile, in-place.
     ///
     /// Returns a set of indexes updated if the line wasn't controversial, None therwise.
     fn solve(&mut self, cache: &mut SolveCache) -> Option<HashSet<usize>> {
-        let cache_key = SolveCacheKey {
-            hints: self.hints().clone(),
-            cells: self.cells().clone().into_owned()
-        };
+        let cache_key = self.cache_key();
         if let Some(cache_value) = cache.get(&cache_key) {
-            unsafe {cache_hits += 1;}
             match cache_value {
                 Some((result, new_cells)) => {
-                    self.cells_mut().assign(new_cells);
+                    if self.cells() != new_cells {
+                        self.cells_mut().assign(new_cells);
+                    }
                     return Some(result.clone());
                 },
                 None => return None
             }
         }
-        unsafe {cache_misses += 1;}
         if !self.verify() {
             cache.insert(cache_key, None);
             return None;
@@ -107,9 +121,7 @@ pub trait LineMut: Line {
 #[derive(Hash, Eq, PartialEq)]
 pub struct SolveCacheKey {
     hints: LineHints,
-    cells: Array1<i8>
+    cells: Vec<u8>
 }
 
-pub type SolveCache = HashMap<SolveCacheKey, Option<(HashSet<usize>, Array1<i8>)>>;
-pub static mut cache_hits: usize = 0;
-pub static mut cache_misses: usize = 0;
+pub type SolveCache = HashMap<SolveCacheKey, Option<(HashSet<usize>, Array1<u8>)>>;

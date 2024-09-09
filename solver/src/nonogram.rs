@@ -112,7 +112,7 @@ impl Nonogram {
 
     fn do_solve(
         &mut self,
-        max_depth: usize,
+        max_depth: Option<usize>,
         find_all: bool,
         assumptions: &Vec<Assumption>,
         line_cache: &mut LineCache,
@@ -167,13 +167,13 @@ impl Nonogram {
 
     fn do_solve_wrapper(
         &mut self,
-        max_depth: usize,
+        max_depth: Option<usize>,
         find_all: bool,
         assumptions: &Vec<Assumption>,
         line_cache: &mut LineCache,
         cache: &mut SolveCache
     ) -> MultiSolutionResult {
-        if assumptions.len() == max_depth {
+        if max_depth.map(|md| assumptions.len() >= md).unwrap_or(false) {
             return Unsolved;
         }
 
@@ -190,7 +190,7 @@ impl Nonogram {
         result
     }
 
-    pub fn solve(&mut self, max_depth: usize, find_all: bool) -> MultiSolutionResult {
+    pub fn solve(&mut self, max_depth: Option<usize>, find_all: bool) -> MultiSolutionResult {
         let mut line_cache: LineCache = HashMap::new();
         let mut cache: SolveCache = HashMap::new();
         let result = self.do_solve(max_depth, find_all, &Vec::new(), &mut line_cache, &mut cache);

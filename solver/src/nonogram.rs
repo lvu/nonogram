@@ -1,6 +1,6 @@
 use common::{invert_value, line_to_str, LineHints, KNOWN, UNKNOWN};
 use itertools::Itertools;
-use line::{Line, LineMut, SolveCache};
+use line::{Line, SolveCache};
 use ndarray::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -15,7 +15,7 @@ pub struct Nonogram {
     col_hints: Vec<LineHints>
 }
 
-type SolutionResult = HashMap<String, Vec<(Vec<(usize, usize)>, Vec<u8>)>>;
+type SolutionResult = HashSet<String>;
 
 impl Nonogram {
     pub fn from_reader<R: io::Read>(rdr: R) -> Result<Self, serde_json::Error> {
@@ -31,15 +31,21 @@ impl Nonogram {
     }
 
     pub fn field_as_string(&self) -> String {
-        self.field.rows().into_iter().map(line_to_str).collect::<Vec<String>>().join("\n")
+        self.field.rows().into_iter().map(|x| line_to_str(&x)).collect::<Vec<String>>().join("\n")
     }
 
-    fn row_line(&mut self, row_idx: usize) -> RowLine {
-        RowLine {nono: self, row_idx}
+    fn row_line(&mut self, row_idx: usize) -> Line {
+        Line {
+            hints: &self.row_hints[row_idx],
+            cells: self.field.row_mut(row_idx)
+        }
     }
 
-    fn col_line(&mut self, col_idx: usize) -> ColLine {
-        ColLine {nono: self, col_idx}
+    fn col_line(&mut self, col_idx: usize) -> Line {
+        Line {
+            hints: &self.col_hints[col_idx],
+            cells: self.field.column_mut(col_idx)
+        }
     }
 
     /// Solves the nonogram in-place only looking at a sinngle line at a time.
@@ -49,19 +55,20 @@ impl Nonogram {
     ///
     /// If there was a controversy, the field's contents is undefined.
     pub fn solve_by_lines(&mut self, cache: &mut SolveCache) -> bool {
-        puffin::profile_function!();
         for row_idx in 0..self.row_hints.len() {
-            if self.row_line(row_idx).solve(cache).is_none() {
+            let mut line = self.row_line(row_idx);
+            if line.solve(cache).is_none() {
                 return false
             }
         }
 
         let mut changed_cols: HashSet<usize> = HashSet::from_iter(0..self.col_hints.len());
-        let mut changed_rows: HashSet<usize> = HashSet::new();
+        let mut changed_rows: HashSet<usize> = HashSet::with_capacity(self.field.nrows());
         loop {
             changed_rows.clear();
             for &col_idx in changed_cols.iter() {
-                match self.col_line(col_idx).solve(cache) {
+                let mut line = self.col_line(col_idx);
+                match line.solve(cache) {
                     Some(ch) => changed_rows.extend(ch.iter()),
                     None => return false
                 }
@@ -72,7 +79,8 @@ impl Nonogram {
 
             changed_cols.clear();
             for &row_idx in changed_rows.iter() {
-                match self.row_line(row_idx).solve(cache) {
+                let mut line = self.row_line(row_idx);
+                match line.solve(cache) {
                     Some(ch) => changed_cols.extend(ch.iter()),
                     None => return false
                 }
@@ -88,9 +96,7 @@ impl Nonogram {
     }
 
     fn do_solve(&mut self, depth: usize, cache: &mut SolveCache) -> SolutionResult {
-        puffin::GlobalProfiler::lock().new_frame();
-        puffin::profile_function!();
-        let mut result: SolutionResult = HashMap::new();
+        let mut result: SolutionResult = HashSet::new();
         let all_coords: Vec<(usize, usize)> = self.field
             .indexed_iter()
             .filter_map(|(coords, &val)| match val {UNKNOWN => Some(coords), _ => None})
@@ -105,14 +111,8 @@ impl Nonogram {
             .map(|(&c, v)| ((c, v), num_cell_entries))
             .collect::<HashMap<((usize, usize), u8), usize>>();
 
-        let mut cnt = 0_usize;
         for assumption_coords in all_coords.iter().combinations(depth) {
-            if cnt % 1000 == 0 {
-                puffin::GlobalProfiler::lock().new_frame();
-            }
-            cnt += 1;
             for assumption_values in all_assumption_values.iter() {
-                puffin::profile_scope!("Assumtion loop");
                 for (&&coords, &val) in assumption_coords.iter().zip(assumption_values.iter()) {
                     self.field[coords] = val;
                 }
@@ -127,10 +127,7 @@ impl Nonogram {
                         }
                     }
                 } else if self.is_solved() {
-                    let result_val = result
-                        .entry(self.field_as_string())
-                        .or_insert_with(|| Vec::new());
-                    result_val.push((assumption_coords.iter().map(|&&x| x).collect(), assumption_values.clone()));
+                    result.insert(self.field_as_string());
                 }
                 self.field.assign(&backup_field);
             }
@@ -144,7 +141,7 @@ impl Nonogram {
             return Err("Controversial puzzle".to_string());
         }
         if self.is_solved() {
-            return Ok(HashMap::from([(self.field_as_string(), Vec::new())]));
+            return Ok(HashSet::from([self.field_as_string()]));
         }
         for depth in 1..max_depth + 1 {
             println!("Depth {} didn't work, trying further...", depth - 1);
@@ -157,54 +154,18 @@ impl Nonogram {
     }
 }
 
+struct Assumption {
+    coords: (usize, usize),
+    val: u8
+}
+
 #[derive(serde::Deserialize)]
 struct NonoDescription {
     row_hints: Vec<LineHints>,
     col_hints: Vec<LineHints>
 }
 
-struct RowLine<'a> {
-    nono: &'a mut Nonogram,
-    row_idx: usize
-}
-
-impl<'a> Line for RowLine<'a> {
-    fn hints(&self) -> &LineHints {
-        &self.nono.row_hints[self.row_idx]
-    }
-
-    fn cells(&self) -> ArrayView1<u8> {
-        self.nono.field.row(self.row_idx)
-    }
-}
-
-impl<'a> LineMut for RowLine<'a> {
-    fn cells_mut(&mut self) -> ArrayViewMut1<u8> {
-        self.nono.field.row_mut(self.row_idx)
-    }
-}
-
-struct ColLine<'a> {
-    nono: &'a mut Nonogram,
-    col_idx: usize
-}
-
-impl<'a> Line for ColLine<'a> {
-    fn hints(&self) -> &LineHints {
-        &self.nono.col_hints[self.col_idx]
-    }
-
-    fn cells(&self) -> ArrayView1<u8> {
-        self.nono.field.column(self.col_idx)
-    }
-}
-
-impl<'a> LineMut for ColLine<'a> {
-    fn cells_mut(&mut self) -> ArrayViewMut1<u8> {
-        self.nono.field.column_mut(self.col_idx)
-    }
-}
-
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -214,14 +175,13 @@ mod tests {
             vec![vec![5], vec![1], vec![5], vec![1], vec![5]],
             vec![vec![3, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 3]]
         );
-        nono.solve_by_lines();
-        let row_strs: Vec<String> = (0..nono.row_hints.len()).map(|idx| nono.row_line(idx).to_string()).collect();
-        assert_eq!(row_strs, vec![
+        nono.solve_by_lines(&mut HashMap::new());
+        assert_eq!(nono.field_as_string(), vec![
             "*****",
             "*XXXX",
             "*****",
             "XXXX*",
             "*****"
-        ]);
+        ].join("\n"));
     }
 }

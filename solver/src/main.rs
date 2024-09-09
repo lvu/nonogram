@@ -14,11 +14,8 @@ fn main() {
     };
     let start = Instant::now();
     match nono.solve(3) {
-        Ok(fields) => for (fld, all_assumptions) in fields {
-            println!("{fld}");
-            for assumptions in all_assumptions {
-                println!("{assumptions:?}");
-            }
+        Ok(fields) => for fld in fields {
+            println!("{fld}\n");
         },
         Err(err) => println!("Error: {err}")
     }

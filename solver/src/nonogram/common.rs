@@ -1,4 +1,4 @@
-use ndarray::ArrayView1;
+use ndarray::{ArrayBase, Data, Ix1};
 
 pub const FILLED: u8 = 1;
 pub const EMPTY: u8 = 2;
@@ -7,7 +7,7 @@ pub const KNOWN: [u8; 2] = [FILLED, EMPTY];
 
 pub type LineHints = Vec<usize>;
 
-pub fn line_to_str(line: ArrayView1<u8>) -> String {
+pub fn line_to_str<T: Data<Elem = u8>>(line: &ArrayBase<T, Ix1>) -> String {
     line.iter().map(|x| match *x {
         UNKNOWN => '.',
         FILLED => '*',

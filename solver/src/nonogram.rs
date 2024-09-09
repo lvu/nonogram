@@ -112,12 +112,13 @@ impl Nonogram {
 
     fn do_solve(
         &mut self,
-        max_depth: Option<usize>,
         find_all: bool,
-        assumptions: &Vec<Assumption>,
-        line_cache: &mut LineCache,
-        cache: &mut SolveCache
+        depth: Option<usize>,
+        line_cache: &mut LineCache
     ) -> MultiSolutionResult {
+        if let Some(d) = depth { if d == 0 {
+            return Unsolved
+        }}
         if !self.solve_by_lines(line_cache) {
             return Controversial;
         }
@@ -127,8 +128,6 @@ impl Nonogram {
 
         let mut result = HashSet::new();
         let mut backup_field = self.field.clone();
-        let mut new_assumptions = assumptions.clone();
-        new_assumptions.push(Assumption{coords: (0, 0), val: 0});
         for coords in self.iter_coords() {
             if self.field[coords] != UNKNOWN {
                 continue;
@@ -136,8 +135,7 @@ impl Nonogram {
             let mut num_controversial: u8 = 0;
             for val in KNOWN.into_iter() {
                 self.field[coords] = val;
-                new_assumptions[assumptions.len()] = Assumption{coords, val};
-                match self.do_solve_wrapper(max_depth, find_all, &new_assumptions, line_cache, cache) {
+                match self.do_solve(find_all, depth.map(|d| d - 1), line_cache) {
                     Solved(res) => {
                         result.extend(res);
                         if !find_all {
@@ -153,49 +151,15 @@ impl Nonogram {
                 self.field.assign(&backup_field);
             }
             if num_controversial == 2 {
-                if assumptions.len() == 1 {
-                    println!("Controversy at {assumptions:?}");
-                }
                 return Controversial;
             }
-        }
-        if assumptions.len() <= 2 {
-            println!("Result at {assumptions:?}: {result:?}");
         }
         if result.is_empty() { Unsolved } else { Solved(result) }
     }
 
-    fn do_solve_wrapper(
-        &mut self,
-        max_depth: Option<usize>,
-        find_all: bool,
-        assumptions: &Vec<Assumption>,
-        line_cache: &mut LineCache,
-        cache: &mut SolveCache
-    ) -> MultiSolutionResult {
-        if max_depth.map(|md| assumptions.len() >= md).unwrap_or(false) {
-            return Unsolved;
-        }
-
-        let mut cache_key = assumptions.clone();
-        cache_key.sort();
-        if let Some(cache_val) = cache.get(&cache_key) {
-            self.cache_hits += 1;
-            return cache_val.clone();
-        }
-
-        self.cache_misses += 1;
-        let result = self.do_solve(max_depth, find_all, assumptions, line_cache, cache);
-        cache.insert(cache_key, result.clone());
-        result
-    }
-
     pub fn solve(&mut self, max_depth: Option<usize>, find_all: bool) -> MultiSolutionResult {
         let mut line_cache: LineCache = HashMap::new();
-        let mut cache: SolveCache = HashMap::new();
-        let result = self.do_solve(max_depth, find_all, &Vec::new(), &mut line_cache, &mut cache);
-        println!("Hits: {}, misses: {}", self.cache_hits, self.cache_misses);
-        result
+        self.do_solve(find_all, max_depth, &mut line_cache)
     }
 }
 
@@ -210,8 +174,6 @@ struct NonoDescription {
     row_hints: Vec<LineHints>,
     col_hints: Vec<LineHints>
 }
-
-type SolveCache = HashMap<Vec<Assumption>, MultiSolutionResult>;
 
 #[cfg(test)]
 mod tests {

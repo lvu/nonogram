@@ -50,7 +50,7 @@ impl<'a> Line<'a> {
         self.do_verify(0, 0)
     }
 
-    fn cache_key(&self) -> SolveCacheKey {
+    fn cache_key(&self) -> LineCacheKey {
         let mut cells = Vec::with_capacity(self.cells.len() / 4 + 1);
         let mut cnt: u8 = 0;
         let mut acc: u8 = 0;
@@ -64,13 +64,13 @@ impl<'a> Line<'a> {
             }
         }
         cells.push(acc);
-        SolveCacheKey { hints: self.hints.clone(), cells }
+        LineCacheKey { hints: self.hints.clone(), cells }
     }
 
     /// Solves the line to the extent currently possbile, in-place.
     ///
     /// Returns a set of indexes updated if the line wasn't controversial, None therwise.
-    pub fn solve(&mut self, cache: &mut SolveCache) -> Option<HashSet<usize>> {
+    pub fn solve(&mut self, cache: &mut LineCache) -> Option<HashSet<usize>> {
         let cache_key = self.cache_key();
         if let Some(cache_value) = cache.get(&cache_key) {
             match cache_value {
@@ -116,9 +116,9 @@ impl<'a> Line<'a> {
 }
 
 #[derive(Hash, Eq, PartialEq)]
-pub struct SolveCacheKey {
+pub struct LineCacheKey {
     hints: LineHints,
     cells: Vec<u8>
 }
 
-pub type SolveCache = HashMap<SolveCacheKey, Option<(HashSet<usize>, Array1<u8>)>>;
+pub type LineCache = HashMap<LineCacheKey, Option<(HashSet<usize>, Array1<u8>)>>;

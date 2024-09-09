@@ -3,7 +3,7 @@ use std::time::Instant;
 
 mod nonogram;
 
-use nonogram::Nonogram;
+use nonogram::{Nonogram, Solved, Unsolved, Controversial};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -13,11 +13,12 @@ fn main() {
         Nonogram::from_reader(io::stdin()).expect("Malformed input")
     };
     let start = Instant::now();
-    match nono.solve(3) {
-        Ok(fields) => for fld in fields {
+    match nono.solve(3, false) {
+        Solved(fields) => for fld in fields {
             println!("{fld}\n");
         },
-        Err(err) => println!("Error: {err}")
+        Unsolved => println!("Cannot solve; info so far: \n{}", nono.field_as_string()),
+        Controversial => println!("Controversial")
     }
     println!("Elapsed: {:?}", start.elapsed());
 }

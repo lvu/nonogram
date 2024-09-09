@@ -1,6 +1,6 @@
 use common::{invert_value, line_to_str, LineHints, KNOWN, UNKNOWN};
 use itertools::Itertools;
-use line::{Line, SolveCache};
+use line::{Line, LineCache};
 use ndarray::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -8,14 +8,22 @@ use std::io;
 mod common;
 mod line;
 
+type MultiSolution = HashSet<String>;
+
+pub enum MultiSolutionResult {
+    Controversial,
+    Unsolved,
+    Solved(MultiSolution)
+}
+
+pub use MultiSolutionResult::*;
+
 #[derive(Debug)]
 pub struct Nonogram {
     field: Array2<u8>,
     row_hints: Vec<LineHints>,
     col_hints: Vec<LineHints>
 }
-
-type SolutionResult = HashSet<String>;
 
 impl Nonogram {
     pub fn from_reader<R: io::Read>(rdr: R) -> Result<Self, serde_json::Error> {
@@ -54,10 +62,10 @@ impl Nonogram {
     /// The complete solution isn't guaranteed, the nonogram may be solved only partially.
     ///
     /// If there was a controversy, the field's contents is undefined.
-    pub fn solve_by_lines(&mut self, cache: &mut SolveCache) -> bool {
+    pub fn solve_by_lines(&mut self, line_cache: &mut LineCache) -> bool {
         for row_idx in 0..self.row_hints.len() {
             let mut line = self.row_line(row_idx);
-            if line.solve(cache).is_none() {
+            if line.solve(line_cache).is_none() {
                 return false
             }
         }
@@ -68,7 +76,7 @@ impl Nonogram {
             changed_rows.clear();
             for &col_idx in changed_cols.iter() {
                 let mut line = self.col_line(col_idx);
-                match line.solve(cache) {
+                match line.solve(line_cache) {
                     Some(ch) => changed_rows.extend(ch.iter()),
                     None => return false
                 }
@@ -80,7 +88,7 @@ impl Nonogram {
             changed_cols.clear();
             for &row_idx in changed_rows.iter() {
                 let mut line = self.row_line(row_idx);
-                match line.solve(cache) {
+                match line.solve(line_cache) {
                     Some(ch) => changed_cols.extend(ch.iter()),
                     None => return false
                 }
@@ -95,65 +103,65 @@ impl Nonogram {
         self.field.iter().all(|&x| x != UNKNOWN)
     }
 
-    fn do_solve(&mut self, depth: usize, cache: &mut SolveCache) -> SolutionResult {
-        let mut result: SolutionResult = HashSet::new();
-        let all_coords: Vec<(usize, usize)> = self.field
-            .indexed_iter()
-            .filter_map(|(coords, &val)| match val {UNKNOWN => Some(coords), _ => None})
-            .collect();
-        let all_assumption_values: Vec<Vec<u8>> = (0..depth).map(|_| KNOWN.into_iter()).multi_cartesian_product().collect();
-        let mut backup_field = self.field.clone();
-        let num_cells = self.field.len();
-        let num_cell_entries = (num_cells - depth + 1 .. num_cells).fold(1, |p, x| 2 * p * x);
-        let mut cell_possibilities = all_coords
-            .iter()
-            .cartesian_product(KNOWN.into_iter())
-            .map(|(&c, v)| ((c, v), num_cell_entries))
-            .collect::<HashMap<((usize, usize), u8), usize>>();
+    fn iter_coords(&self) -> impl Iterator<Item = (usize, usize)> {
+        (0..self.field.nrows()).cartesian_product(0..self.field.ncols())
+    }
 
-        for assumption_coords in all_coords.iter().combinations(depth) {
-            for assumption_values in all_assumption_values.iter() {
-                for (&&coords, &val) in assumption_coords.iter().zip(assumption_values.iter()) {
-                    self.field[coords] = val;
-                }
-                if !self.solve_by_lines(cache) {
-                    for (&&coords, &val) in assumption_coords.iter().zip(assumption_values.iter()) {
-                        let num_possibilities = cell_possibilities.get_mut(&(coords, val)).unwrap();
-                        debug_assert!(*num_possibilities > 0);
-                        *num_possibilities -= 1;
-                        if *num_possibilities == 0 {
-                            backup_field[coords] = invert_value(val);
-                            println!("Found new at {coords:?}: not {val}");
-                        }
-                    }
+    fn do_solve(&mut self, max_depth: usize, find_all: bool, assumptions: Vec<Assumption>, line_cache: &mut LineCache) -> MultiSolutionResult {
+        if assumptions.len() == max_depth {
+            return Unsolved;
+        }
+
+        let mut result = HashSet::new();
+        let mut backup_field = self.field.clone();
+        for coords in self.iter_coords() {
+            if self.field[coords] != UNKNOWN {
+                continue;
+            }
+            for val in KNOWN.into_iter() {
+                self.field[coords] = val;
+                if !self.solve_by_lines(line_cache) {
+                    backup_field[coords] = invert_value(val);
                 } else if self.is_solved() {
                     result.insert(self.field_as_string());
+                    if !find_all {
+                        return Solved(result);
+                    }
+                } else {
+                    let mut new_assumptions = assumptions.clone();
+                    new_assumptions.push(Assumption{coords, val});
+                    match self.do_solve(max_depth, find_all, new_assumptions, line_cache) {
+                        Solved(res) => {
+                            result.extend(res);
+                            if !find_all {
+                                return Solved(result);
+                            }
+                        },
+                        Unsolved => (),
+                        Controversial => {
+                            backup_field[coords] = invert_value(val);
+                        }
+                    }
                 }
                 self.field.assign(&backup_field);
             }
         }
-        result
+        if result.is_empty() { Unsolved } else { Solved(result) }
     }
 
-    pub fn solve(&mut self, max_depth: usize) -> Result<SolutionResult, String> {
-        let mut cache: SolveCache = HashMap::new();
-        if !self.solve_by_lines(&mut cache) {
-            return Err("Controversial puzzle".to_string());
+    pub fn solve(&mut self, max_depth: usize, find_all: bool) -> MultiSolutionResult {
+        let mut line_cache: LineCache = HashMap::new();
+        if !self.solve_by_lines(&mut line_cache) {
+            return Controversial;
         }
         if self.is_solved() {
-            return Ok(HashSet::from([self.field_as_string()]));
+            return Solved(HashSet::from([self.field_as_string()]));
         }
-        for depth in 1..max_depth + 1 {
-            println!("Depth {} didn't work, trying further...", depth - 1);
-            let result = self.do_solve(depth, &mut cache);
-            if result.len() > 0 {
-                return Ok(result);
-            }
-        }
-        Err("No solution found".to_string())
+        self.do_solve(max_depth, find_all, Vec::new(), &mut line_cache)
     }
 }
 
+#[derive(Clone)]
 struct Assumption {
     coords: (usize, usize),
     val: u8

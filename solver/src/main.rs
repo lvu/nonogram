@@ -13,7 +13,7 @@ fn main() {
         Nonogram::from_reader(io::stdin()).expect("Malformed input")
     };
     let start = Instant::now();
-    match nono.solve(3, false) {
+    match nono.solve(4, true) {
         Solved(fields) => for fld in fields {
             println!("{fld}\n");
         },

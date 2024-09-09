@@ -135,6 +135,7 @@ impl Nonogram {
             let mut num_controversial: u8 = 0;
             for val in KNOWN.into_iter() {
                 self.field[coords] = val;
+                let mut changed = false;
                 match self.do_solve(find_all, depth.map(|d| d - 1), line_cache) {
                     Solved(res) => {
                         result.extend(res);
@@ -146,9 +147,14 @@ impl Nonogram {
                     Controversial => {
                         num_controversial += 1;
                         backup_field[coords] = invert_value(val);
+                        changed = true;
                     }
                 }
                 self.field.assign(&backup_field);
+                if changed {
+                    self.solve_by_lines(line_cache);
+                    backup_field.assign(&self.field);
+                }
             }
             if num_controversial == 2 {
                 return Controversial;

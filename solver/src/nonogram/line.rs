@@ -64,7 +64,7 @@ impl<'a> Line<'a> {
             }
         }
         cells.push(acc);
-        LineCacheKey { hints: self.hints.clone(), cells }
+        LineCacheKey { hints: self.hints.clone(), len: self.cells.len(), cells }
     }
 
     /// Solves the line to the extent currently possbile, in-place.
@@ -118,6 +118,7 @@ impl<'a> Line<'a> {
 #[derive(Hash, Eq, PartialEq)]
 pub struct LineCacheKey {
     hints: LineHints,
+    len: usize,
     cells: Vec<u8>
 }
 

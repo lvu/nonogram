@@ -15,7 +15,6 @@ struct Cli {
 
 fn main() {
     let cli = Cli::parse();
-    let args: Vec<String> = std::env::args().collect();
     let mut nono = match cli.fname {
         Some(fname) => Nonogram::from_reader(std::fs::File::open(fname).unwrap()).unwrap(),
         None => Nonogram::from_reader(io::stdin()).expect("Malformed input")

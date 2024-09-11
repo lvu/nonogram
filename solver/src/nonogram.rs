@@ -19,13 +19,10 @@ pub enum MultiSolutionResult {
 
 pub use MultiSolutionResult::*;
 
-#[derive(Debug)]
 pub struct Nonogram {
     field: Array2<u8>,
     row_hints: Vec<LineHints>,
-    col_hints: Vec<LineHints>,
-    cache_hits: usize,
-    cache_misses: usize
+    col_hints: Vec<LineHints>
 }
 
 impl Nonogram {
@@ -37,7 +34,7 @@ impl Nonogram {
     fn from_hints(row_hints: Vec<LineHints>, col_hints: Vec<LineHints>) -> Self {
         Self {
             field: Array::from_elem((row_hints.len(), col_hints.len()), UNKNOWN),
-            row_hints, col_hints, cache_hits: 0, cache_misses: 0
+            row_hints, col_hints
         }
     }
 
@@ -167,12 +164,6 @@ impl Nonogram {
         let mut line_cache: LineCache = HashMap::new();
         self.do_solve(find_all, max_depth, &mut line_cache)
     }
-}
-
-#[derive(Clone, Hash, Eq, PartialEq, PartialOrd, Ord, Debug)]
-struct Assumption {
-    coords: (usize, usize),
-    val: u8
 }
 
 #[derive(serde::Deserialize)]

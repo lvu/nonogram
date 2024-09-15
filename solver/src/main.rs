@@ -20,7 +20,8 @@ fn main() {
         None => Nonogram::from_reader(io::stdin()).expect("Malformed input")
     };
     let start = Instant::now();
-    match nono.solve(if cli.max_depth > 0 { Some(cli.max_depth) } else { None }, cli.find_all) {
+    // match nono.solve(if cli.max_depth > 0 { Some(cli.max_depth) } else { None }, cli.find_all) {
+    match nono.solve_2sat() {
         Solved(fields) => for fld in fields {
             println!("{fld}\n");
         },

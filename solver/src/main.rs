@@ -4,7 +4,7 @@ use clap::Parser;
 
 mod nonogram;
 
-use nonogram::{Nonogram, Solved, Unsolved, Controversial};
+use nonogram::{Solver, Solved, Unsolved, Controversial, PartiallySolved};
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -15,17 +15,18 @@ struct Cli {
 
 fn main() {
     let cli = Cli::parse();
-    let mut nono = match cli.fname {
-        Some(fname) => Nonogram::from_reader(std::fs::File::open(fname).unwrap()).unwrap(),
-        None => Nonogram::from_reader(io::stdin()).expect("Malformed input")
+    let max_depth =if cli.max_depth > 0 { Some(cli.max_depth) } else { None };
+    let solver = match cli.fname {
+        Some(fname) => Solver::from_reader(std::fs::File::open(fname).unwrap(), max_depth, cli.find_all).unwrap(),
+        None => Solver::from_reader(io::stdin(), max_depth, cli.find_all).expect("Malformed input")
     };
     let start = Instant::now();
-    // match nono.solve(if cli.max_depth > 0 { Some(cli.max_depth) } else { None }, cli.find_all) {
-    match nono.solve_2sat() {
+    match solver.solve_2sat() {
         Solved(fields) => for fld in fields {
-            println!("{fld}\n");
+            println!("{}\n", fld.to_string());
         },
-        Unsolved => println!("Cannot solve; info so far: \n{}", nono.field_as_string()),
+        Unsolved => println!("Cannot solve at all"),
+        PartiallySolved(fld) => println!("Cannot solve; info so far: \n{}", fld.to_string()),
         Controversial => println!("Controversial")
     }
     println!("Elapsed: {:?}", start.elapsed());

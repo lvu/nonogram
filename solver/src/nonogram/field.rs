@@ -6,7 +6,7 @@ use super::common::{line_to_str, UNKNOWN};
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Field {
-    data: Array2<u8>
+    data: Array2<u8>,
 }
 
 impl Display for Field {
@@ -47,4 +47,3 @@ impl Field {
         other.data.move_into(&mut self.data);
     }
 }
-

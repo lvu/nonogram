@@ -9,7 +9,7 @@ use super::common::{line_to_str, LineHints, EMPTY, FILLED, UNKNOWN};
 
 pub struct Line<'a> {
     pub hints: &'a LineHints,
-    pub cells: ArrayViewMut1<'a, u8>
+    pub cells: ArrayViewMut1<'a, u8>,
 }
 
 impl<'a> Line<'a> {
@@ -79,8 +79,8 @@ impl<'a> Line<'a> {
                         self.cells.assign(new_cells);
                     }
                     return Some(result.clone());
-                },
-                None => return None
+                }
+                None => return None,
             }
         }
         if !self.verify() {
@@ -119,7 +119,7 @@ impl<'a> Line<'a> {
 pub struct LineCacheKey {
     hints: LineHints,
     len: usize,
-    cells: Vec<u8>
+    cells: Vec<u8>,
 }
 
 pub type LineCache = HashMap<LineCacheKey, Option<(HashSet<usize>, Array1<u8>)>>;

@@ -8,16 +8,16 @@ pub struct ReachabilityGraph<T> {
     // reachability_in[A].contains(B) means that A is reachable from B
     reachability_in: Vec<HashSet<usize>>,
     // reachability_out[B].contains(A) means that B is reachable from A
-    reachability_out: Vec<HashSet<usize>>
+    reachability_out: Vec<HashSet<usize>>,
 }
 
-impl <T: Hash + Eq + Clone> ReachabilityGraph<T> {
+impl<T: Hash + Eq + Clone> ReachabilityGraph<T> {
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
             rev_nodes: HashMap::new(),
             reachability_in: Vec::new(),
-            reachability_out: Vec::new()
+            reachability_out: Vec::new(),
         }
     }
 
@@ -36,7 +36,10 @@ impl <T: Hash + Eq + Clone> ReachabilityGraph<T> {
     }
 
     fn get_node_idx_or_add(&mut self, node: &T) -> usize {
-        self.rev_nodes.get(node).map(|&x| x).unwrap_or_else(|| self.add_node(node.clone()))
+        self.rev_nodes
+            .get(node)
+            .map(|&x| x)
+            .unwrap_or_else(|| self.add_node(node.clone()))
     }
 
     /// Add information that b is reachable from a
@@ -56,17 +59,25 @@ impl <T: Hash + Eq + Clone> ReachabilityGraph<T> {
     }
 
     pub fn is_reachable(&self, a: &T, b: &T) -> bool {
-        let a = match self.rev_nodes.get(a) { Some(x) => x, None => return false};
-        let b = match self.rev_nodes.get(b) { Some(x) => x, None => return false};
+        let a = match self.rev_nodes.get(a) {
+            Some(x) => x,
+            None => return false,
+        };
+        let b = match self.rev_nodes.get(b) {
+            Some(x) => x,
+            None => return false,
+        };
         self.reachability_out[*a].contains(b)
     }
 
     pub fn get_reachable(&self, node: &T) -> Option<impl Iterator<Item = &T>> {
-        self.rev_nodes.get(node).map(
-            |&node_idx| self.reachability_out.get(node_idx).unwrap().iter().map(
-                |&out_idx| &self.nodes[out_idx]
-            )
-        )
+        self.rev_nodes.get(node).map(|&node_idx| {
+            self.reachability_out
+                .get(node_idx)
+                .unwrap()
+                .iter()
+                .map(|&out_idx| &self.nodes[out_idx])
+        })
     }
 
     pub fn strongly_connected_components(&self) -> Vec<Vec<&T>> {
@@ -76,7 +87,11 @@ impl <T: Hash + Eq + Clone> ReachabilityGraph<T> {
             if visited.contains(a) {
                 continue;
             }
-            let scc: Vec<&T> = self.get_reachable(a).unwrap().filter(|&b| self.is_reachable(b, a)).collect();
+            let scc: Vec<&T> = self
+                .get_reachable(a)
+                .unwrap()
+                .filter(|&b| self.is_reachable(b, a))
+                .collect();
             visited.extend(scc.iter());
             result.push(scc);
         }

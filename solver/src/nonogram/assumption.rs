@@ -1,20 +1,17 @@
-use itertools::Itertools;
-use super::Field;
 use super::common::{invert_value, UNKNOWN};
 use super::reachability_graph::ReachabilityGraph;
+use super::Field;
+use itertools::Itertools;
 
 #[derive(Debug, Default, Hash, Eq, PartialEq, Clone)]
 pub struct Assumption {
     pub coords: (usize, usize),
-    pub val: u8
+    pub val: u8,
 }
 
 impl Assumption {
     pub fn invert(&self) -> Self {
-        Self {
-            coords: self.coords,
-            val: invert_value(self.val)
-        }
+        Self { coords: self.coords, val: invert_value(self.val) }
     }
 
     pub fn apply(&self, field: &mut Field) {

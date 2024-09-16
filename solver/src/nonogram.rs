@@ -1,11 +1,11 @@
 use assumption::Assumption;
 use common::{line_to_str, LineHints, KNOWN, UNKNOWN};
-use itertools::Itertools;
 use field::Field;
+use itertools::Itertools;
 use line::{Line, LineCache};
 use reachability_graph::ReachabilityGraph;
 use std::collections::{HashMap, HashSet};
-use std::{io};
+use std::io;
 
 mod assumption;
 mod common;
@@ -20,7 +20,7 @@ pub enum SolutionResult {
     Controversial,
     Unsolved,
     PartiallySolved(Field),
-    Solved(MultiSolution)
+    Solved(MultiSolution),
 }
 
 pub use SolutionResult::*;
@@ -28,20 +28,24 @@ pub use SolutionResult::*;
 #[derive(serde::Deserialize)]
 struct NonoDescription {
     row_hints: Vec<LineHints>,
-    col_hints: Vec<LineHints>
+    col_hints: Vec<LineHints>,
 }
 
 pub struct Solver {
     row_hints: Vec<LineHints>,
     col_hints: Vec<LineHints>,
     max_depth: Option<usize>,
-    find_all: bool
+    find_all: bool,
 }
 
 impl Solver {
-    pub fn from_reader<R: io::Read>(rdr: R, max_depth: Option<usize>, find_all: bool) -> Result<Self, serde_json::Error> {
+    pub fn from_reader<R: io::Read>(
+        rdr: R,
+        max_depth: Option<usize>,
+        find_all: bool,
+    ) -> Result<Self, serde_json::Error> {
         let descr: NonoDescription = serde_json::from_reader(rdr)?;
-        Ok(Self { row_hints: descr.row_hints, col_hints: descr.col_hints, max_depth, find_all } )
+        Ok(Self { row_hints: descr.row_hints, col_hints: descr.col_hints, max_depth, find_all })
     }
 
     fn create_field(&self) -> Field {
@@ -57,17 +61,11 @@ impl Solver {
     }
 
     fn row_line<'a>(&'a self, field: &'a mut Field, row_idx: usize) -> Line {
-        Line {
-            hints: &self.row_hints[row_idx],
-            cells: field.row_mut(row_idx)
-        }
+        Line { hints: &self.row_hints[row_idx], cells: field.row_mut(row_idx) }
     }
 
     fn col_line<'a>(&'a self, field: &'a mut Field, col_idx: usize) -> Line {
-        Line {
-            hints: &self.col_hints[col_idx],
-            cells: field.col_mut(col_idx)
-        }
+        Line { hints: &self.col_hints[col_idx], cells: field.col_mut(col_idx) }
     }
 
     /// Solves the nonogram only looking at a sinngle line at a time.
@@ -90,7 +88,7 @@ impl Solver {
                 let mut line = self.col_line(&mut new_field, col_idx);
                 match line.solve(line_cache) {
                     Some(ch) => changed_rows.extend(ch.iter()),
-                    None => return Controversial
+                    None => return Controversial,
                 }
             }
             if changed_rows.is_empty() {
@@ -100,7 +98,7 @@ impl Solver {
                     PartiallySolved(new_field)
                 } else {
                     Unsolved
-                }
+                };
             }
 
             changed_cols.clear();
@@ -108,7 +106,7 @@ impl Solver {
                 let mut line = self.row_line(&mut new_field, row_idx);
                 match line.solve(line_cache) {
                     Some(ch) => changed_cols.extend(ch.iter()),
-                    None => return Controversial
+                    None => return Controversial,
                 }
             }
             if changed_cols.is_empty() {
@@ -118,7 +116,7 @@ impl Solver {
                     PartiallySolved(new_field)
                 } else {
                     Unsolved
-                }
+                };
             }
         }
     }
@@ -128,7 +126,8 @@ impl Solver {
     }
 
     fn iter_assumptions(&self) -> impl Iterator<Item = Assumption> {
-        self.iter_coords().flat_map(|coords| KNOWN.iter().map(move |&val| Assumption {coords, val}))
+        self.iter_coords()
+            .flat_map(|coords| KNOWN.iter().map(move |&val| Assumption { coords, val }))
     }
 
     fn do_solve(
@@ -136,17 +135,17 @@ impl Solver {
         field: &Field,
         depth: usize,
         assumptions: &Vec<Assumption>,
-        line_cache: &mut LineCache
+        line_cache: &mut LineCache,
     ) -> SolutionResult {
         if self.max_depth.map(|d| depth > d).unwrap_or(false) {
-            return Unsolved
+            return Unsolved;
         }
         let mut field = field.clone();
         let by_lines = self.solve_by_lines(&field, line_cache);
         match by_lines {
             Controversial | Solved(_) => return by_lines,
             PartiallySolved(new_field) => field.replace(new_field),
-            Unsolved => ()
+            Unsolved => (),
         };
 
         let mut solutions = HashSet::new();
@@ -168,11 +167,11 @@ impl Solver {
                         return Solved(solutions);
                     }
                     ass.unapply(&mut field);
-                },
+                }
                 Unsolved | PartiallySolved(_) => {
                     has_unsolved = true;
                     ass.unapply(&mut field);
-                },
+                }
                 Controversial => {
                     if let Some(prev_ass) = prev_controversial {
                         if prev_ass.coords == ass.coords {
@@ -196,7 +195,7 @@ impl Solver {
                 }
             }
         }
-        assert!(!field.is_solved());  // If it's solved, we should've caught it earlier
+        assert!(!field.is_solved()); // If it's solved, we should've caught it earlier
         if !solutions.is_empty() && !(has_unsolved && self.find_all) {
             Solved(solutions)
         } else if has_updates {
@@ -233,8 +232,9 @@ impl Solver {
                 }
                 for ass2 in self.iter_assumptions() {
                     if ass1.coords <= ass2.coords
-                    || field.get(ass2.coords) != UNKNOWN
-                    || reach.is_reachable(&ass1, &ass2.invert()) {
+                        || field.get(ass2.coords) != UNKNOWN
+                        || reach.is_reachable(&ass1, &ass2.invert())
+                    {
                         continue;
                     }
                     ass1.apply(&mut field);
@@ -243,8 +243,10 @@ impl Solver {
                         Unsolved | PartiallySolved(_) => has_unsolved = true,
                         Solved(res) => {
                             solutions.extend(res);
-                            if !self.find_all { return Solved(solutions); }
-                        },
+                            if !self.find_all {
+                                return Solved(solutions);
+                            }
+                        }
                         Controversial => {
                             reach.set_reachable(&ass1, &ass2.invert());
                             reach.set_reachable(&ass2, &ass1.invert());
@@ -266,14 +268,14 @@ impl Solver {
                 global_changed = true;
             }
             if !changed {
-                return if global_changed { PartiallySolved(field) } else { Unsolved }
+                return if global_changed { PartiallySolved(field) } else { Unsolved };
             }
 
             let by_lines = self.solve_by_lines(&field, &mut line_cache);
             match by_lines {
                 Solved(_) | Controversial => return by_lines,
                 PartiallySolved(new_field) => field.replace(new_field),
-                Unsolved => ()
+                Unsolved => (),
             }
             println!("{}\n", field.to_string());
         }
@@ -302,9 +304,12 @@ mod tests {
         let solver = Solver {
             row_hints: vec![vec![5], vec![1], vec![5], vec![1], vec![5]],
             col_hints: vec![vec![3, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 3]],
-            max_depth: None, find_all: false
+            max_depth: None,
+            find_all: false,
         };
-        solver.solve_by_lines(&solver.create_field(), &mut HashMap::new()).assert_solved(&["\
+        solver
+            .solve_by_lines(&solver.create_field(), &mut HashMap::new())
+            .assert_solved(&["\
                 *****\n\
                 *XXXX\n\
                 *****\n\
@@ -318,15 +323,15 @@ mod tests {
         let solver = Solver {
             row_hints: vec![vec![1], vec![1]],
             col_hints: vec![vec![1], vec![1]],
-            max_depth: Some(3), find_all: true
+            max_depth: Some(3),
+            find_all: true,
         };
-        solver.solve().assert_solved(&["\
-            *X\n\
-            X*\n\
-        ", "\
-            X*\n\
-            *X\n\
-        "]);
+        solver.solve().assert_solved(&[
+            "*X\n\
+             X*\n",
+            "X*\n\
+             *X\n",
+        ]);
     }
 
     #[test]
@@ -334,15 +339,15 @@ mod tests {
         let solver = Solver {
             row_hints: vec![vec![1], vec![1]],
             col_hints: vec![vec![1], vec![1]],
-            max_depth: Some(3), find_all: true
+            max_depth: Some(3),
+            find_all: true,
         };
-        solver.solve_2sat().assert_solved(&["\
-            *X\n\
-            X*\n\
-        ", "\
-            X*\n\
-            *X\n\
-        "]);
+        solver.solve_2sat().assert_solved(&[
+            "*X\n\
+             X*\n",
+            "X*\n\
+             *X\n",
+        ]);
     }
 
     #[test]
@@ -350,21 +355,19 @@ mod tests {
         let solver = Solver {
             row_hints: vec![vec![1, 1], vec![1, 1]],
             col_hints: vec![vec![1], vec![1], vec![], vec![1], vec![1]],
-            max_depth: None, find_all: true
+            max_depth: None,
+            find_all: true,
         };
-        solver.solve().assert_solved(&["\
-            *XX*X\n\
-            X*XX*\n\
-        ", "\
-            *XXX*\n\
-            X*X*X\n\
-        ", "\
-            X*XX*\n\
-            *XX*X\n\
-        ", "\
-            X*X*X\n\
-            *XXX*\n\
-        "]);
+        solver.solve().assert_solved(&[
+            "*XX*X\n\
+             X*XX*\n",
+            "*XXX*\n\
+             X*X*X\n",
+            "X*XX*\n\
+             *XX*X\n",
+            "X*X*X\n\
+             *XXX*\n",
+        ]);
     }
 
     #[ignore]
@@ -373,20 +376,18 @@ mod tests {
         let solver = Solver {
             row_hints: vec![vec![1, 1], vec![1, 1]],
             col_hints: vec![vec![1], vec![1], vec![], vec![1], vec![1]],
-            max_depth: None, find_all: true
+            max_depth: None,
+            find_all: true,
         };
-        solver.solve_2sat().assert_solved(&["\
-            *XX*X\n\
-            X*XX*\n\
-        ", "\
-            *XXX*\n\
-            X*X*X\n\
-        ", "\
-            X*XX*\n\
-            *XX*X\n\
-        ", "\
-            X*X*X\n\
-            *XXX*\n\
-        "]);
+        solver.solve_2sat().assert_solved(&[
+            "*XX*X\n\
+             X*XX*\n",
+            "*XXX*\n\
+             X*X*X\n",
+            "X*XX*\n\
+             *XX*X\n",
+            "X*X*X\n\
+             *XXX*\n",
+        ]);
     }
 }

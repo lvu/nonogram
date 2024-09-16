@@ -4,22 +4,25 @@ use super::*;
 
 struct OwnedLine {
     hints: LineHints,
-    cells: Array1<u8>
+    cells: Array1<u8>,
 }
 
 impl OwnedLine {
     fn create(hints: LineHints, l: &str) -> Result<Self, std::fmt::Error> {
-        let cells = l.chars().map(|c| match c {
-            '.' => Ok(UNKNOWN),
-            '*' => Ok(FILLED),
-            'X' => Ok(EMPTY),
-            _ => Err(std::fmt::Error)
-        }).collect::<Result<Array1<u8>, std::fmt::Error>>()?;
+        let cells = l
+            .chars()
+            .map(|c| match c {
+                '.' => Ok(UNKNOWN),
+                '*' => Ok(FILLED),
+                'X' => Ok(EMPTY),
+                _ => Err(std::fmt::Error),
+            })
+            .collect::<Result<Array1<u8>, std::fmt::Error>>()?;
         Ok(Self { hints, cells })
     }
 
     fn line(&mut self) -> Line {
-        Line {hints: &self.hints, cells: self.cells.view_mut()}
+        Line { hints: &self.hints, cells: self.cells.view_mut() }
     }
 }
 

@@ -2,11 +2,11 @@ use std::fmt::Display;
 
 use ndarray::{Array, Array2, ArrayViewMut1};
 
-use super::common::{line_to_str, UNKNOWN};
+use super::common::{line_to_str, CellValue, Unknown};
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Field {
-    data: Array2<u8>,
+    data: Array2<CellValue>,
 }
 
 impl Display for Field {
@@ -20,26 +20,26 @@ impl Display for Field {
 
 impl Field {
     pub fn new(nrows: usize, ncols: usize) -> Self {
-        Self { data: Array::from_elem((nrows, ncols), UNKNOWN) }
+        Self { data: Array::from_elem((nrows, ncols), Unknown) }
     }
 
     pub fn is_solved(&self) -> bool {
-        self.data.iter().all(|&x| x != UNKNOWN)
+        self.data.iter().all(|&x| x != Unknown)
     }
 
-    pub fn row_mut(&mut self, idx: usize) -> ArrayViewMut1<u8> {
+    pub fn row_mut(&mut self, idx: usize) -> ArrayViewMut1<CellValue> {
         self.data.row_mut(idx)
     }
 
-    pub fn col_mut(&mut self, idx: usize) -> ArrayViewMut1<u8> {
+    pub fn col_mut(&mut self, idx: usize) -> ArrayViewMut1<CellValue> {
         self.data.column_mut(idx)
     }
 
-    pub fn get(&self, coords: (usize, usize)) -> u8 {
+    pub fn get(&self, coords: (usize, usize)) -> CellValue {
         self.data[coords]
     }
 
-    pub fn set(&mut self, coords: (usize, usize), val: u8) {
+    pub fn set(&mut self, coords: (usize, usize), val: CellValue) {
         self.data[coords] = val;
     }
 

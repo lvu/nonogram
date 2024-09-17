@@ -21,10 +21,6 @@ impl<T: Hash + Eq + Clone> ReachabilityGraph<T> {
         }
     }
 
-    pub fn nodes(&self) -> &Vec<T> {
-        &self.nodes
-    }
-
     fn add_node(&mut self, node: T) -> usize {
         debug_assert!(!self.rev_nodes.contains_key(&node));
         let node_idx = self.nodes.len();
@@ -123,13 +119,13 @@ mod tests {
         g.set_reachable(&c, &e);
         g.set_reachable(&e, &f);
         g.set_reachable(&f, &e);
-        let mut a_reachable: HashSet<&String> = g.get_reachable(&a).unwrap().collect();
+        let a_reachable: HashSet<&String> = g.get_reachable(&a).unwrap().collect();
         assert_eq!(a_reachable, HashSet::from([&a, &b, &c, &d, &e, &f]));
-        let mut b_reachable: HashSet<&String> = g.get_reachable(&b).unwrap().collect();
+        let b_reachable: HashSet<&String> = g.get_reachable(&b).unwrap().collect();
         assert_eq!(b_reachable, HashSet::from([&b, &c, &d, &e, &f]));
-        let mut d_reachable: HashSet<&String> = g.get_reachable(&d).unwrap().collect();
+        let d_reachable: HashSet<&String> = g.get_reachable(&d).unwrap().collect();
         assert_eq!(d_reachable, HashSet::from([&b, &c, &d, &e, &f]));
-        let mut e_reachable: HashSet<&String> = g.get_reachable(&e).unwrap().collect();
+        let e_reachable: HashSet<&String> = g.get_reachable(&e).unwrap().collect();
         assert_eq!(e_reachable, HashSet::from([&e, &f]));
 
         if let Some(_) = g.get_reachable(&"G".to_string()) {

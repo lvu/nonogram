@@ -4,7 +4,7 @@ use super::*;
 
 struct OwnedLine {
     hints: LineHints,
-    cells: Array1<u8>,
+    cells: Array1<CellValue>,
 }
 
 impl OwnedLine {
@@ -12,12 +12,12 @@ impl OwnedLine {
         let cells = l
             .chars()
             .map(|c| match c {
-                '.' => Ok(UNKNOWN),
-                '*' => Ok(FILLED),
-                'X' => Ok(EMPTY),
+                '.' => Ok(Unknown),
+                '*' => Ok(Filled),
+                'X' => Ok(Empty),
                 _ => Err(std::fmt::Error),
             })
-            .collect::<Result<Array1<u8>, std::fmt::Error>>()?;
+            .collect::<Result<Array1<CellValue>, std::fmt::Error>>()?;
         Ok(Self { hints, cells })
     }
 

@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::io;
 use std::time::Instant;
 
@@ -6,9 +6,20 @@ mod nonogram;
 
 use nonogram::{Controversial, PartiallySolved, Solved, Solver, Unsolved};
 
+#[derive(ValueEnum, Debug, Clone)]
+enum SolverType {
+    ByLine,
+    Recursive,
+    TwoSat,
+}
+
+use SolverType::*;
+
 #[derive(Parser, Debug)]
 struct Cli {
     fname: Option<String>,
+    #[arg(value_enum, short, long, default_value_t = TwoSat)]
+    solver: SolverType,
     #[arg(short, long, default_value_t = 3, help("Max recusrion depth, 0 for no limit"))]
     max_depth: usize,
     #[arg(short = 'a', long)]
@@ -23,7 +34,12 @@ fn main() {
         None => Solver::from_reader(io::stdin(), max_depth, cli.find_all).expect("Malformed input"),
     };
     let start = Instant::now();
-    match solver.solve_2sat() {
+    let result = match cli.solver {
+        ByLine => solver.solve_by_lines(),
+        Recursive => solver.solve(),
+        TwoSat => solver.solve_2sat(),
+    };
+    match result {
         Solved(fields) => {
             for fld in fields {
                 println!("{}\n", fld.to_string());

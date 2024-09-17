@@ -5,14 +5,15 @@ mod tests;
 
 use ndarray::{s, Array1, ArrayViewMut1};
 
-use super::common::{line_to_str, LineHints, EMPTY, FILLED, UNKNOWN};
+use super::common::{line_to_str, CellValue, LineHints, Empty, Filled, Unknown};
 
 pub struct Line<'a> {
     pub hints: &'a LineHints,
-    pub cells: ArrayViewMut1<'a, u8>,
+    pub cells: ArrayViewMut1<'a, CellValue>,
 }
 
 impl<'a> Line<'a> {
+    #[allow(dead_code)]
     fn to_string(&self) -> String {
         line_to_str(&self.cells)
     }
@@ -23,7 +24,7 @@ impl<'a> Line<'a> {
         }
         let cells = self.cells.slice(s![cells_offset..]);
         if hint_idx == self.hints.len() {
-            return cells.iter().all(|&x| x != FILLED);
+            return cells.iter().all(|&x| x != Filled);
         }
         let current_hint = self.hints[hint_idx];
         let size = cells.len();
@@ -33,13 +34,13 @@ impl<'a> Line<'a> {
         }
         for (start, &val) in cells.slice(s![..size - current_hint + 1]).indexed_iter() {
             let end = start + current_hint;
-            if cells.slice(s![start..end]).iter().all(|&x| x != EMPTY)
-                && (end == size || cells[end] != FILLED)
+            if cells.slice(s![start..end]).iter().all(|&x| x != Empty)
+                && (end == size || cells[end] != Filled)
                 && self.do_verify(hint_idx + 1, cells_offset + end + 1)
             {
                 return true;
             }
-            if val == FILLED {
+            if val == Filled {
                 return false;
             }
         }
@@ -55,7 +56,7 @@ impl<'a> Line<'a> {
         let mut cnt: u8 = 0;
         let mut acc: u8 = 0;
         for &val in self.cells.iter() {
-            acc = (acc << 2) | val;
+            acc = (acc << 2) | (val as u8);
             cnt += 1;
             if cnt == 4 {
                 cells.push(acc);
@@ -89,25 +90,25 @@ impl<'a> Line<'a> {
         }
         let mut result = HashSet::new();
         for idx in 0..self.cells.len() {
-            if self.cells[idx] != UNKNOWN {
+            if self.cells[idx] != Unknown {
                 continue;
             }
 
-            self.cells[idx] = FILLED;
+            self.cells[idx] = Filled;
             if !self.verify() {
-                self.cells[idx] = EMPTY;
+                self.cells[idx] = Empty;
                 result.insert(idx);
                 continue;
             }
 
-            self.cells[idx] = EMPTY;
+            self.cells[idx] = Empty;
             if !self.verify() {
-                self.cells[idx] = FILLED;
+                self.cells[idx] = Filled;
                 result.insert(idx);
                 continue;
             }
 
-            self.cells[idx] = UNKNOWN;
+            self.cells[idx] = Unknown;
         }
         debug_assert!(self.verify());
         cache.insert(cache_key, Some((result.clone(), self.cells.to_owned())));
@@ -122,4 +123,4 @@ pub struct LineCacheKey {
     cells: Vec<u8>,
 }
 
-pub type LineCache = HashMap<LineCacheKey, Option<(HashSet<usize>, Array1<u8>)>>;
+pub type LineCache = HashMap<LineCacheKey, Option<(HashSet<usize>, Array1<CellValue>)>>;

@@ -1,5 +1,5 @@
 use assumption::Assumption;
-use common::{line_to_str, LineHints, KNOWN, UNKNOWN};
+use common::{LineHints, KNOWN, Unknown};
 use field::Field;
 use itertools::Itertools;
 use line::{Line, LineCache};
@@ -68,10 +68,7 @@ impl Solver {
         Line { hints: &self.col_hints[col_idx], cells: field.col_mut(col_idx) }
     }
 
-    /// Solves the nonogram only looking at a sinngle line at a time.
-    ///
-    /// The complete solution isn't guaranteed, the nonogram may be solved only partially.
-    pub fn solve_by_lines(&self, field: &Field, line_cache: &mut LineCache) -> SolutionResult {
+    fn do_solve_by_lines(&self, field: &Field, line_cache: &mut LineCache) -> SolutionResult {
         let mut new_field = field.clone();
         for row_idx in 0..self.nrows() {
             let mut line = self.row_line(&mut new_field, row_idx);
@@ -141,7 +138,7 @@ impl Solver {
             return Unsolved;
         }
         let mut field = field.clone();
-        let by_lines = self.solve_by_lines(&field, line_cache);
+        let by_lines = self.do_solve_by_lines(&field, line_cache);
         match by_lines {
             Controversial | Solved(_) => return by_lines,
             PartiallySolved(new_field) => field.replace(new_field),
@@ -151,58 +148,67 @@ impl Solver {
         let mut solutions = HashSet::new();
         let mut new_assumptions = assumptions.clone();
         new_assumptions.push(Assumption::default());
-        let mut prev_controversial: Option<Assumption> = None;
         let mut has_unsolved = false;
         let mut has_updates = false;
-        for ass in self.iter_assumptions() {
-            if field.get(ass.coords) != UNKNOWN {
+        for coords in self.iter_coords() {
+            if field.get(coords) != Unknown {
                 continue;
             }
-            ass.apply(&mut field);
-            new_assumptions[assumptions.len()] = ass.clone();
-            match self.do_solve(&field, depth + 1, &new_assumptions, line_cache) {
-                Solved(res) => {
-                    solutions.extend(res);
-                    if !self.find_all {
-                        return Solved(solutions);
+            let mut has_controversy = false;
+            for val in KNOWN {
+               let ass = Assumption {coords, val };
+                ass.apply(&mut field);
+                new_assumptions[assumptions.len()] = ass.clone();
+                match self.do_solve(&field, depth + 1, &new_assumptions, line_cache) {
+                    Solved(res) => {
+                        solutions.extend(res);
+                        if !self.find_all {
+                            return Solved(solutions);
+                        }
+                        ass.unapply(&mut field);
                     }
-                    ass.unapply(&mut field);
-                }
-                Unsolved | PartiallySolved(_) => {
-                    has_unsolved = true;
-                    ass.unapply(&mut field);
-                }
-                Controversial => {
-                    if let Some(prev_ass) = prev_controversial {
-                        if prev_ass.coords == ass.coords {
+                    Unsolved | PartiallySolved(_) => {
+                        has_unsolved = true;
+                        ass.unapply(&mut field);
+                    }
+                    Controversial => {
+                        if has_controversy {
                             return Controversial;
                         }
-                    }
-                    ass.invert().apply(&mut field);
-                    match self.solve_by_lines(&field, line_cache) {
-                        Controversial => return Controversial,
-                        PartiallySolved(new_field) => field.replace(new_field),
-                        Unsolved => (),
-                        Solved(res) => {
-                            solutions.extend(res);
-                            if !self.find_all {
-                                return Solved(solutions);
+                        ass.invert().apply(&mut field);
+                        match self.do_solve_by_lines(&field, line_cache) {
+                            Controversial => return Controversial,
+                            PartiallySolved(new_field) => field.replace(new_field),
+                            Unsolved => (),
+                            Solved(res) => {
+                                solutions.extend(res);
+                                if !self.find_all {
+                                    return Solved(solutions);
+                                }
                             }
                         }
+                        has_updates = true;
+                        has_controversy = true;
                     }
-                    has_updates = true;
-                    prev_controversial = Some(ass);
                 }
             }
         }
-        assert!(!field.is_solved()); // If it's solved, we should've caught it earlier
         if !solutions.is_empty() && !(has_unsolved && self.find_all) {
-            Solved(solutions)
-        } else if has_updates {
-            PartiallySolved(field)
-        } else {
-            Unsolved
+            return Solved(solutions);
         }
+        match self.do_solve_by_lines(&field, line_cache) {
+            Solved(res) => {
+                assert_eq!(solutions, res);
+                Solved(res)
+            },
+            Unsolved => if has_updates { PartiallySolved(field) } else { Unsolved },
+            PartiallySolved(fld) => PartiallySolved(fld),
+            Controversial => Controversial,
+        }
+    }
+
+    pub fn solve_by_lines(&self) -> SolutionResult {
+        self.do_solve_by_lines(&self.create_field(), &mut HashMap::new())
     }
 
     pub fn solve(&self) -> SolutionResult {
@@ -212,7 +218,7 @@ impl Solver {
     pub fn solve_2sat(&self) -> SolutionResult {
         let mut field = self.create_field();
         let mut line_cache: LineCache = HashMap::new();
-        let by_lines = self.solve_by_lines(&field, &mut line_cache);
+        let by_lines = self.do_solve_by_lines(&field, &mut line_cache);
         match by_lines {
             Controversial | Solved(_) => return by_lines,
             Unsolved => (),
@@ -223,23 +229,22 @@ impl Solver {
         let mut global_changed = false;
         loop {
             let mut reach: ReachabilityGraph<Assumption> = ReachabilityGraph::new();
-            let old_field = field.clone();
             let mut solutions = HashSet::new();
             let mut has_unsolved = false;
             for ass1 in self.iter_assumptions() {
-                if field.get(ass1.coords) != UNKNOWN {
+                if field.get(ass1.coords) != Unknown {
                     continue;
                 }
                 for ass2 in self.iter_assumptions() {
                     if ass1.coords <= ass2.coords
-                        || field.get(ass2.coords) != UNKNOWN
+                        || field.get(ass2.coords) != Unknown
                         || reach.is_reachable(&ass1, &ass2.invert())
                     {
                         continue;
                     }
                     ass1.apply(&mut field);
                     ass2.apply(&mut field);
-                    match self.solve_by_lines(&field, &mut line_cache) {
+                    match self.do_solve_by_lines(&field, &mut line_cache) {
                         Unsolved | PartiallySolved(_) => has_unsolved = true,
                         Solved(res) => {
                             solutions.extend(res);
@@ -271,7 +276,7 @@ impl Solver {
                 return if global_changed { PartiallySolved(field) } else { Unsolved };
             }
 
-            let by_lines = self.solve_by_lines(&field, &mut line_cache);
+            let by_lines = self.do_solve_by_lines(&field, &mut line_cache);
             match by_lines {
                 Solved(_) | Controversial => return by_lines,
                 PartiallySolved(new_field) => field.replace(new_field),
@@ -308,7 +313,7 @@ mod tests {
             find_all: false,
         };
         solver
-            .solve_by_lines(&solver.create_field(), &mut HashMap::new())
+            .do_solve_by_lines(&solver.create_field(), &mut HashMap::new())
             .assert_solved(&["\
                 *****\n\
                 *XXXX\n\
@@ -355,7 +360,7 @@ mod tests {
         let solver = Solver {
             row_hints: vec![vec![1, 1], vec![1, 1]],
             col_hints: vec![vec![1], vec![1], vec![], vec![1], vec![1]],
-            max_depth: None,
+            max_depth: Some(2),
             find_all: true,
         };
         solver.solve().assert_solved(&[

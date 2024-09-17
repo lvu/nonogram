@@ -1,27 +1,41 @@
 use ndarray::{ArrayBase, Data, Ix1};
 
-pub const FILLED: u8 = 1;
-pub const EMPTY: u8 = 2;
-pub const UNKNOWN: u8 = 0;
-pub const KNOWN: [u8; 2] = [FILLED, EMPTY];
+#[derive(Debug, Hash, Eq, PartialEq, Copy, Clone)]
+pub enum CellValue {
+    Filled,
+    Empty,
+    Unknown,
+}
+
+pub use CellValue::*;
+
+pub const KNOWN: [CellValue; 2] = [Filled, Empty];
 
 pub type LineHints = Vec<usize>;
 
-pub fn line_to_str<T: Data<Elem = u8>>(line: &ArrayBase<T, Ix1>) -> String {
+pub fn line_to_str<T: Data<Elem = CellValue>>(line: &ArrayBase<T, Ix1>) -> String {
     line.iter()
         .map(|x| match *x {
-            UNKNOWN => '.',
-            FILLED => '*',
-            EMPTY => 'X',
-            _ => panic!("Invalid value: {x}"),
+            Unknown => '.',
+            Filled => '*',
+            Empty => 'X',
         })
         .collect()
 }
 
-pub fn invert_value(val: u8) -> u8 {
-    match val {
-        FILLED => EMPTY,
-        EMPTY => FILLED,
-        _ => panic!("Invalid value {val}"),
+impl CellValue {
+    pub fn invert(&self) -> Self {
+        match self {
+            Filled => Empty,
+            Empty => Filled,
+            _ => panic!("Cannot invert {self:?}"),
+        }
+
+    }
+}
+
+impl Default for CellValue {
+    fn default() -> Self {
+        Unknown
     }
 }

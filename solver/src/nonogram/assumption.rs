@@ -1,4 +1,4 @@
-use super::common::{invert_value, UNKNOWN};
+use super::common::{CellValue, Unknown};
 use super::reachability_graph::ReachabilityGraph;
 use super::Field;
 use itertools::Itertools;
@@ -6,12 +6,12 @@ use itertools::Itertools;
 #[derive(Debug, Default, Hash, Eq, PartialEq, Clone)]
 pub struct Assumption {
     pub coords: (usize, usize),
-    pub val: u8,
+    pub val: CellValue,
 }
 
 impl Assumption {
     pub fn invert(&self) -> Self {
-        Self { coords: self.coords, val: invert_value(self.val) }
+        Self { coords: self.coords, val: self.val.invert() }
     }
 
     pub fn apply(&self, field: &mut Field) {
@@ -19,7 +19,7 @@ impl Assumption {
     }
 
     pub fn unapply(&self, field: &mut Field) {
-        field.set(self.coords, UNKNOWN);
+        field.set(self.coords, Unknown);
     }
 }
 

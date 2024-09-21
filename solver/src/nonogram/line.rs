@@ -81,16 +81,8 @@ impl<'a> Line<'a> {
         }
     }
 
-    /// Solves the line to the extent currently possbile, in-place.
-    ///
-    /// Returns a set of indexes updated if the line wasn't controversial, None therwise.
-    pub fn solve(mut self, cache: &mut LineCache) -> Option<Vec<Assumption>> {
-        let cache_key = self.cache_key();
-        if let Some(cache_value) = cache.get(&cache_key) {
-            return cache_value.clone();
-        }
+    fn do_solve(mut self) -> Option<Vec<Assumption>> {
         if !self.verify() {
-            cache.insert(cache_key, None);
             return None;
         }
         let mut result = Vec::new();
@@ -112,8 +104,15 @@ impl<'a> Line<'a> {
             self.cells[idx] = Unknown;
         }
         debug_assert!(self.verify());
-        cache.insert(cache_key, Some(result.clone()));
         Some(result)
+    }
+
+    /// Solves the line to the extent currently possbile.
+    ///
+    /// Returns updates as a list of Assumption if the line wasn't controversial, None otherwise.
+    pub fn solve<'b>(self, cache: &'b mut LineCache) -> &'b Option<Vec<Assumption>> {
+        let cache_key = self.cache_key();
+        cache.entry(cache_key).or_insert_with(move || Box::new(self.do_solve()))
     }
 }
 
@@ -124,4 +123,4 @@ pub struct LineCacheKey {
     cells: Vec<u8>,
 }
 
-pub type LineCache = HashMap<LineCacheKey, Option<Vec<Assumption>>>;
+pub type LineCache = HashMap<LineCacheKey, Box<Option<Vec<Assumption>>>>;

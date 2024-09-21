@@ -96,30 +96,33 @@ fn verify_split_with_fine_left() {
 #[test]
 fn solve_simple_overlap_and_unreachable() {
     let ol = OwnedLine::create(vec![4], ".....*..").unwrap();
-    let changes: HashSet<Assumption> = ol.line().solve(&mut HashMap::new()).unwrap().into_iter().collect();
+    let mut cache = HashMap::new();
+    let changes: HashSet<&Assumption> = ol.line().solve(&mut cache).as_ref().unwrap().iter().collect();
     assert_eq!(changes, HashSet::from([
-        Assumption{coords: (0, 0), val: Empty},
-        Assumption{coords: (0, 1), val: Empty},
-        Assumption{coords: (0, 4), val: Filled},
+        &Assumption{coords: (0, 0), val: Empty},
+        &Assumption{coords: (0, 1), val: Empty},
+        &Assumption{coords: (0, 4), val: Filled},
     ]));
 }
 
 #[test]
 fn solve_fill_with_ambiguity() {
     let ol = OwnedLine::create(vec![1, 2], "...*X..").unwrap();
-    let changes: HashSet<Assumption> = ol.line().solve(&mut HashMap::new()).unwrap().into_iter().collect();
+    let mut cache = HashMap::new();
+    let changes: HashSet<&Assumption> = ol.line().solve(&mut cache).as_ref().unwrap().iter().collect();
     assert_eq!(changes, HashSet::from([
-        Assumption{coords: (0, 1), val: Empty},
+        &Assumption{coords: (0, 1), val: Empty},
     ]));
 }
 
 #[test]
 fn solve_empties_with_definite_chunks() {
     let ol = OwnedLine::create(vec![2, 1], "...X.*.X*").unwrap();
-    let changes: HashSet<Assumption> = ol.line().solve(&mut HashMap::new()).unwrap().into_iter().collect();
+    let mut cache = HashMap::new();
+    let changes: HashSet<&Assumption> = ol.line().solve(&mut cache).as_ref().unwrap().iter().collect();
     assert_eq!(changes, HashSet::from([
-        Assumption{coords: (0, 0), val: Empty},
-        Assumption{coords: (0, 1), val: Empty},
-        Assumption{coords: (0, 2), val: Empty},
+        &Assumption{coords: (0, 0), val: Empty},
+        &Assumption{coords: (0, 1), val: Empty},
+        &Assumption{coords: (0, 2), val: Empty},
     ]));
 }

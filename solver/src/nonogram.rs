@@ -127,14 +127,17 @@ impl Solver {
             .flat_map(|coords| KNOWN.iter().map(move |&val| Assumption { coords, val }))
     }
 
+    fn max_depth_reached(&self, depth: usize) -> bool {
+        self.max_depth.map(|d| depth > d).unwrap_or(false)
+    }
+
     fn do_solve(
         &self,
         field: &Field,
         depth: usize,
-        assumptions: &Vec<Assumption>,
         line_cache: &mut LineCache,
     ) -> SolutionResult {
-        if self.max_depth.map(|d| depth > d).unwrap_or(false) {
+        if self.max_depth_reached(depth) {
             return Unsolved;
         }
         let mut field = field.clone();
@@ -146,8 +149,6 @@ impl Solver {
         };
 
         let mut solutions = HashSet::new();
-        let mut new_assumptions = assumptions.clone();
-        new_assumptions.push(Assumption::default());
         let mut has_unsolved = false;
         let mut has_updates = false;
         for coords in self.iter_coords() {
@@ -158,8 +159,7 @@ impl Solver {
             for val in KNOWN {
                let ass = Assumption {coords, val };
                 ass.apply(&mut field);
-                new_assumptions[assumptions.len()] = ass.clone();
-                match self.do_solve(&field, depth + 1, &new_assumptions, line_cache) {
+                match self.do_solve(&field, depth + 1, line_cache) {
                     Solved(res) => {
                         solutions.extend(res);
                         if !self.find_all {
@@ -207,83 +207,142 @@ impl Solver {
         }
     }
 
+    fn apply_impossible_matches(&self, field: &Field, reach: &ReachabilityGraph<Assumption>, line_cache: &mut LineCache) -> SolutionResult {
+        let mut field = field.clone();
+        let mut changed = false;
+        for ass in reach.get_impossible() {
+            let old_val = field.get(ass.coords);
+            if old_val == Unknown {
+                ass.invert().apply(&mut field);
+                changed = true;
+            } else if old_val == ass.val {
+                return Controversial;
+            }
+        }
+        if !changed {
+            return Unsolved;
+        }
+        let by_lines = self.do_solve_by_lines(&field, line_cache);
+        match by_lines {
+            Unsolved => PartiallySolved(field),
+            _ => by_lines,
+        }
+    }
+
+    fn do_2sat_step<F: Fn(&Field, usize, &mut LineCache) -> SolutionResult>(
+        &self,
+        field: &Field,
+        depth: usize,
+        line_cache: &mut LineCache,
+        recurse: F,
+    ) -> SolutionResult {
+        let mut field = field.clone();
+        let mut reach: ReachabilityGraph<Assumption> = ReachabilityGraph::new();
+        let mut solutions = HashSet::new();
+        let mut has_unsolved = false;
+        for ass1 in self.iter_assumptions() {
+            if field.get(ass1.coords) != Unknown {
+                continue;
+            }
+            ass1.apply(&mut field);
+            for ass2 in self.iter_assumptions() {
+                if ass1.coords <= ass2.coords
+                    || field.get(ass2.coords) != Unknown
+                    || reach.is_reachable(&ass1, &ass2.invert())
+                {
+                    continue;
+                }
+                ass2.apply(&mut field);
+                match recurse(&field, depth + 1, line_cache) {
+                    Unsolved | PartiallySolved(_) => has_unsolved = true,
+                    Solved(res) => {
+                        solutions.extend(res);
+                        if !self.find_all {
+                            return Solved(solutions);
+                        }
+                    }
+                    Controversial => {
+                        reach.set_reachable(&ass1, &ass2.invert());
+                        reach.set_reachable(&ass2, &ass1.invert());
+                    }
+                }
+                ass2.unapply(&mut field);
+            }
+            ass1.unapply(&mut field);
+        }
+
+        if solutions.len() > 0 && !has_unsolved {
+            return Solved(solutions);
+        }
+
+        self.apply_impossible_matches(&field, &reach, line_cache)
+    }
+
+    fn do_solve_2sat(
+        &self,
+        field: &Field,
+        depth: usize,
+        line_cache: &mut LineCache,
+    ) -> SolutionResult {
+        let mut field = field.clone();
+        let by_lines = self.do_solve_by_lines(&field, line_cache);
+        match by_lines {
+            Controversial | Solved(_) => return by_lines,
+            Unsolved => if self.max_depth_reached(depth) {
+                return Unsolved;
+            },
+            PartiallySolved(new_field) => if self.max_depth_reached(depth) {
+                return PartiallySolved(new_field);
+            } else {
+                field.replace(new_field);
+            },
+        }
+        if depth == 0 {
+            println!("{}\n", field.to_string());
+        }
+
+        let mut global_changed = false;
+        loop {
+            let by_step = self.do_2sat_step(&field, depth, line_cache, |fld, _, lc| self.do_solve_by_lines(fld, lc));
+            match by_step {
+                Solved(_) | Controversial => return by_step,
+                PartiallySolved(new_field) => {
+                    field.replace(new_field);
+                    global_changed = true;
+                },
+                Unsolved => break,
+            }
+            if depth == 0 {
+                println!("{}\n", field.to_string());
+            }
+        }
+        loop {
+            let by_step = self.do_2sat_step(&field, depth, line_cache, |fld, d, lc| self.do_solve_2sat(fld, d + 1, lc));
+            match by_step {
+                Solved(_) | Controversial => return by_step,
+                PartiallySolved(new_field) => {
+                    field.replace(new_field);
+                    global_changed = true;
+                },
+                Unsolved => break,
+            }
+            if depth == 0 {
+                println!("{}\n", field.to_string());
+            }
+        }
+        if global_changed { PartiallySolved(field) } else { Unsolved }
+    }
+
     pub fn solve_by_lines(&self) -> SolutionResult {
         self.do_solve_by_lines(&self.create_field(), &mut HashMap::new())
     }
 
     pub fn solve(&self) -> SolutionResult {
-        self.do_solve(&self.create_field(), 0, &Vec::new(), &mut HashMap::new())
+        self.do_solve(&self.create_field(), 0, &mut HashMap::new())
     }
 
     pub fn solve_2sat(&self) -> SolutionResult {
-        let mut field = self.create_field();
-        let mut line_cache: LineCache = HashMap::new();
-        let by_lines = self.do_solve_by_lines(&field, &mut line_cache);
-        match by_lines {
-            Controversial | Solved(_) => return by_lines,
-            Unsolved => (),
-            PartiallySolved(new_field) => field.replace(new_field),
-        }
-        println!("{}\n", field.to_string());
-
-        let mut global_changed = false;
-        loop {
-            let mut reach: ReachabilityGraph<Assumption> = ReachabilityGraph::new();
-            let mut solutions = HashSet::new();
-            let mut has_unsolved = false;
-            for ass1 in self.iter_assumptions() {
-                if field.get(ass1.coords) != Unknown {
-                    continue;
-                }
-                for ass2 in self.iter_assumptions() {
-                    if ass1.coords <= ass2.coords
-                        || field.get(ass2.coords) != Unknown
-                        || reach.is_reachable(&ass1, &ass2.invert())
-                    {
-                        continue;
-                    }
-                    ass1.apply(&mut field);
-                    ass2.apply(&mut field);
-                    match self.do_solve_by_lines(&field, &mut line_cache) {
-                        Unsolved | PartiallySolved(_) => has_unsolved = true,
-                        Solved(res) => {
-                            solutions.extend(res);
-                            if !self.find_all {
-                                return Solved(solutions);
-                            }
-                        }
-                        Controversial => {
-                            reach.set_reachable(&ass1, &ass2.invert());
-                            reach.set_reachable(&ass2, &ass1.invert());
-                        }
-                    }
-                    ass1.unapply(&mut field);
-                    ass2.unapply(&mut field);
-                }
-            }
-
-            if !has_unsolved {
-                return Solved(solutions);
-            }
-
-            let mut changed = false;
-            for ass in reach.get_impossible() {
-                ass.invert().apply(&mut field);
-                changed = true;
-                global_changed = true;
-            }
-            if !changed {
-                return if global_changed { PartiallySolved(field) } else { Unsolved };
-            }
-
-            let by_lines = self.do_solve_by_lines(&field, &mut line_cache);
-            match by_lines {
-                Solved(_) | Controversial => return by_lines,
-                PartiallySolved(new_field) => field.replace(new_field),
-                Unsolved => (),
-            }
-            println!("{}\n", field.to_string());
-        }
+        self.do_solve_2sat(&self.create_field(), 0, &mut HashMap::new())
     }
 }
 
@@ -375,13 +434,12 @@ mod tests {
         ]);
     }
 
-    #[ignore]
     #[test]
     fn solve_double_ambiguous_2sat() {
         let solver = Solver {
             row_hints: vec![vec![1, 1], vec![1, 1]],
             col_hints: vec![vec![1], vec![1], vec![], vec![1], vec![1]],
-            max_depth: None,
+            max_depth: Some(2),
             find_all: true,
         };
         solver.solve_2sat().assert_solved(&[

@@ -4,9 +4,10 @@ use field::Field;
 use itertools::Itertools;
 use line::{Line, LineCache, LineType};
 use reachability_graph::ReachabilityGraph;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::hash::BuildHasher;
 use std::io;
+use std::ops::DerefMut;
 use LineType::*;
 use std::hash::BuildHasherDefault;
 use ahash::AHasher;
@@ -40,6 +41,7 @@ pub struct Solver {
     col_hints: Vec<LineHints>,
     max_depth: Option<usize>,
     find_all: bool,
+    line_cache: RefCell<LineCache<BuildHasherDefault<AHasher>>>,
 }
 
 impl Solver {
@@ -49,7 +51,11 @@ impl Solver {
         find_all: bool,
     ) -> Result<Self, serde_json::Error> {
         let descr: NonoDescription = serde_json::from_reader(rdr)?;
-        Ok(Self { row_hints: descr.row_hints, col_hints: descr.col_hints, max_depth, find_all })
+        Ok(Self::from_hints(descr.row_hints, descr.col_hints, max_depth, find_all))
+    }
+
+    fn from_hints(row_hints: Vec<LineHints>, col_hints: Vec<LineHints>, max_depth: Option<usize>, find_all: bool) -> Self {
+        Self {row_hints, col_hints, max_depth, find_all, line_cache: RefCell::new(HashMap::default()) }
     }
 
     fn create_field(&self) -> Field {
@@ -72,12 +78,12 @@ impl Solver {
         Line { line_type: Col, line_idx: col_idx, hints: &self.col_hints[col_idx], cells: field.col(col_idx) }
     }
 
-    fn do_solve_by_lines<S: BuildHasher>(&self, field: &Field, line_cache: &mut LineCache<S>) -> SolutionResult {
+    fn do_solve_by_lines(&self, field: &Field) -> SolutionResult {
         let mut field = field.clone();
         let mut changes_made = false;
         for row_idx in 0..self.nrows() {
             let line = self.row_line(&field, row_idx);
-            match line.solve(line_cache) {
+            match line.solve(self.line_cache.borrow_mut().deref_mut()) {
                 Some(changes) => for ass in changes {
                     ass.apply(&mut field);
                     changes_made = true;
@@ -92,7 +98,7 @@ impl Solver {
             changed_rows.clear();
             for &col_idx in changed_cols.iter() {
                 let line = self.col_line(&field, col_idx);
-                match line.solve(line_cache) {
+                match line.solve(self.line_cache.borrow_mut().deref_mut()) {
                     Some(changes) => for ass in changes {
                         ass.apply(&mut field);
                         changes_made = true;
@@ -111,7 +117,7 @@ impl Solver {
             changed_cols.clear();
             for &row_idx in changed_rows.iter() {
                 let line = self.row_line(&field, row_idx);
-                match line.solve(line_cache) {
+                match line.solve(self.line_cache.borrow_mut().deref_mut()) {
                     Some(changes) => for ass in changes {
                         ass.apply(&mut field);
                         changes_made = true;
@@ -142,17 +148,12 @@ impl Solver {
         self.max_depth.map(|d| depth > d).unwrap_or(false)
     }
 
-    fn do_solve<S: BuildHasher>(
-        &self,
-        field: &Field,
-        depth: usize,
-        line_cache: &mut LineCache<S>,
-    ) -> SolutionResult {
+    fn do_solve(&self, field: &Field, depth: usize) -> SolutionResult {
         if self.max_depth_reached(depth) {
             return Unsolved;
         }
         let mut field = field.clone();
-        let by_lines = self.do_solve_by_lines(&field, line_cache);
+        let by_lines = self.do_solve_by_lines(&field);
         match by_lines {
             Controversial | Solved(_) => return by_lines,
             PartiallySolved(new_field) => field.replace(new_field),
@@ -170,7 +171,7 @@ impl Solver {
             for val in KNOWN {
                let ass = Assumption {coords, val };
                 ass.apply(&mut field);
-                match self.do_solve(&field, depth + 1, line_cache) {
+                match self.do_solve(&field, depth + 1) {
                     Solved(res) => {
                         solutions.extend(res);
                         if !self.find_all {
@@ -187,7 +188,7 @@ impl Solver {
                             return Controversial;
                         }
                         ass.invert().apply(&mut field);
-                        match self.do_solve_by_lines(&field, line_cache) {
+                        match self.do_solve_by_lines(&field) {
                             Controversial => return Controversial,
                             PartiallySolved(new_field) => field.replace(new_field),
                             Unsolved => (),
@@ -207,7 +208,7 @@ impl Solver {
         if !solutions.is_empty() && !(has_unsolved && self.find_all) {
             return Solved(solutions);
         }
-        match self.do_solve_by_lines(&field, line_cache) {
+        match self.do_solve_by_lines(&field) {
             Solved(res) => {
                 assert_eq!(solutions, res);
                 Solved(res)
@@ -218,7 +219,7 @@ impl Solver {
         }
     }
 
-    fn apply_impossible_matches<S: BuildHasher>(&self, field: &Field, reach: &ReachabilityGraph<Assumption>, line_cache: &mut LineCache<S>) -> SolutionResult {
+    fn apply_impossible_matches(&self, field: &Field, reach: &ReachabilityGraph<Assumption>) -> SolutionResult {
         let mut field = field.clone();
         let mut changed = false;
         for ass in reach.get_impossible() {
@@ -233,18 +234,17 @@ impl Solver {
         if !changed {
             return Unsolved;
         }
-        let by_lines = self.do_solve_by_lines(&field, line_cache);
+        let by_lines = self.do_solve_by_lines(&field);
         match by_lines {
             Unsolved => PartiallySolved(field),
             _ => by_lines,
         }
     }
 
-    fn do_2sat_step<F: Fn(&Field, usize, &mut LineCache<S>) -> SolutionResult, S: BuildHasher>(
+    fn do_2sat_step<F: Fn(&Field, usize) -> SolutionResult>(
         &self,
         field: &Field,
         depth: usize,
-        line_cache: &mut LineCache<S>,
         recurse: F,
     ) -> SolutionResult {
         let mut field = field.clone();
@@ -264,7 +264,7 @@ impl Solver {
                     continue;
                 }
                 ass2.apply(&mut field);
-                match recurse(&field, depth + 1, line_cache) {
+                match recurse(&field, depth + 1) {
                     Unsolved | PartiallySolved(_) => has_unsolved = true,
                     Solved(res) => {
                         solutions.extend(res);
@@ -286,17 +286,12 @@ impl Solver {
             return Solved(solutions);
         }
 
-        self.apply_impossible_matches(&field, &reach, line_cache)
+        self.apply_impossible_matches(&field, &reach)
     }
 
-    fn do_solve_2sat<S: BuildHasher>(
-        &self,
-        field: &Field,
-        depth: usize,
-        line_cache: &mut LineCache<S>,
-    ) -> SolutionResult {
+    fn do_solve_2sat(&self, field: &Field, depth: usize) -> SolutionResult {
         let mut field = field.clone();
-        let by_lines = self.do_solve_by_lines(&field, line_cache);
+        let by_lines = self.do_solve_by_lines(&field);
         match by_lines {
             Controversial | Solved(_) => return by_lines,
             Unsolved => if self.max_depth_reached(depth) {
@@ -314,7 +309,7 @@ impl Solver {
 
         let mut global_changed = false;
         loop {
-            let by_step = self.do_2sat_step(&field, depth, line_cache, |fld, _, lc| self.do_solve_by_lines(fld, lc));
+            let by_step = self.do_2sat_step(&field, depth, |fld, _| self.do_solve_by_lines(fld));
             match by_step {
                 Solved(_) | Controversial => return by_step,
                 PartiallySolved(new_field) => {
@@ -328,7 +323,7 @@ impl Solver {
             }
         }
         loop {
-            let by_step = self.do_2sat_step(&field, depth, line_cache, |fld, d, lc| self.do_solve_2sat(fld, d + 1, lc));
+            let by_step = self.do_2sat_step(&field, depth, |fld, d| self.do_solve_2sat(fld, d + 1));
             match by_step {
                 Solved(_) | Controversial => return by_step,
                 PartiallySolved(new_field) => {
@@ -345,18 +340,15 @@ impl Solver {
     }
 
     pub fn solve_by_lines(&self) -> SolutionResult {
-        let mut cache: HashMap<_, _, BuildHasherDefault<AHasher>> = HashMap::default();
-        self.do_solve_by_lines(&self.create_field(), &mut cache)
+        self.do_solve_by_lines(&self.create_field())
     }
 
     pub fn solve(&self) -> SolutionResult {
-        let mut cache: HashMap<_, _, BuildHasherDefault<AHasher>> = HashMap::default();
-        self.do_solve(&self.create_field(), 0, &mut cache)
+        self.do_solve(&self.create_field(), 0)
     }
 
     pub fn solve_2sat(&self) -> SolutionResult {
-        let mut cache: HashMap<_, _, BuildHasherDefault<AHasher>> = HashMap::default();
-        self.do_solve_2sat(&self.create_field(), 0, &mut cache)
+        self.do_solve_2sat(&self.create_field(), 0)
     }
 }
 
@@ -379,14 +371,13 @@ mod tests {
 
     #[test]
     fn solve_by_line() {
-        let solver = Solver {
-            row_hints: vec![vec![5], vec![1], vec![5], vec![1], vec![5]],
-            col_hints: vec![vec![3, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 3]],
-            max_depth: None,
-            find_all: false,
-        };
+        let solver = Solver::from_hints(
+            vec![vec![5], vec![1], vec![5], vec![1], vec![5]],
+            vec![vec![3, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 3]],
+            None, false,
+        );
         solver
-            .do_solve_by_lines(&solver.create_field(), &mut HashMap::new())
+            .do_solve_by_lines(&solver.create_field())
             .assert_solved(&["\
                 *****\n\
                 *XXXX\n\
@@ -398,12 +389,11 @@ mod tests {
 
     #[test]
     fn solve_ambiguous_recursive() {
-        let solver = Solver {
-            row_hints: vec![vec![1], vec![1]],
-            col_hints: vec![vec![1], vec![1]],
-            max_depth: Some(3),
-            find_all: true,
-        };
+        let solver = Solver::from_hints(
+            vec![vec![1], vec![1]],
+            vec![vec![1], vec![1]],
+            Some(3), true
+        );
         solver.solve().assert_solved(&[
             "*X\n\
              X*\n",
@@ -414,12 +404,11 @@ mod tests {
 
     #[test]
     fn solve_ambiguous_2sat() {
-        let solver = Solver {
-            row_hints: vec![vec![1], vec![1]],
-            col_hints: vec![vec![1], vec![1]],
-            max_depth: Some(3),
-            find_all: true,
-        };
+        let solver = Solver::from_hints(
+            vec![vec![1], vec![1]],
+            vec![vec![1], vec![1]],
+            Some(3), true,
+        );
         solver.solve_2sat().assert_solved(&[
             "*X\n\
              X*\n",
@@ -430,12 +419,11 @@ mod tests {
 
     #[test]
     fn solve_double_ambiguous_recursive() {
-        let solver = Solver {
-            row_hints: vec![vec![1, 1], vec![1, 1]],
-            col_hints: vec![vec![1], vec![1], vec![], vec![1], vec![1]],
-            max_depth: Some(2),
-            find_all: true,
-        };
+        let solver = Solver::from_hints(
+            vec![vec![1, 1], vec![1, 1]],
+            vec![vec![1], vec![1], vec![], vec![1], vec![1]],
+            Some(2), true
+        );
         solver.solve().assert_solved(&[
             "*XX*X\n\
              X*XX*\n",
@@ -450,12 +438,11 @@ mod tests {
 
     #[test]
     fn solve_double_ambiguous_2sat() {
-        let solver = Solver {
-            row_hints: vec![vec![1, 1], vec![1, 1]],
-            col_hints: vec![vec![1], vec![1], vec![], vec![1], vec![1]],
-            max_depth: Some(2),
-            find_all: true,
-        };
+        let solver = Solver::from_hints(
+            vec![vec![1, 1], vec![1, 1]],
+            vec![vec![1], vec![1], vec![], vec![1], vec![1]],
+            Some(2), true
+        );
         solver.solve_2sat().assert_solved(&[
             "*XX*X\n\
              X*XX*\n",

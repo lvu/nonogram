@@ -1,16 +1,16 @@
+use ahash::AHasher;
 use assumption::Assumption;
-use common::{LineHints, KNOWN, Unknown};
+use common::{LineHints, Unknown, KNOWN};
 use field::Field;
 use itertools::Itertools;
 use line::{Line, LineCache, LineType};
 use reachability_graph::ReachabilityGraph;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasherDefault;
 use std::io;
 use std::ops::DerefMut;
 use LineType::*;
-use std::hash::BuildHasherDefault;
-use ahash::AHasher;
 
 mod assumption;
 mod common;
@@ -54,8 +54,13 @@ impl Solver {
         Ok(Self::from_hints(descr.row_hints, descr.col_hints, max_depth, find_all))
     }
 
-    fn from_hints(row_hints: Vec<LineHints>, col_hints: Vec<LineHints>, max_depth: Option<usize>, find_all: bool) -> Self {
-        Self {row_hints, col_hints, max_depth, find_all, line_cache: RefCell::new(HashMap::default()) }
+    fn from_hints(
+        row_hints: Vec<LineHints>,
+        col_hints: Vec<LineHints>,
+        max_depth: Option<usize>,
+        find_all: bool,
+    ) -> Self {
+        Self { row_hints, col_hints, max_depth, find_all, line_cache: RefCell::new(HashMap::default()) }
     }
 
     fn create_field(&self) -> Field {
@@ -84,10 +89,12 @@ impl Solver {
         for row_idx in 0..self.nrows() {
             let line = self.row_line(&field, row_idx);
             match line.solve(self.line_cache.borrow_mut().deref_mut()) {
-                Some(changes) => for ass in changes {
-                    ass.apply(&mut field);
-                    changes_made = true;
-                },
+                Some(changes) => {
+                    for ass in changes {
+                        ass.apply(&mut field);
+                        changes_made = true;
+                    }
+                }
                 None => return Controversial,
             }
         }
@@ -99,11 +106,13 @@ impl Solver {
             for &col_idx in changed_cols.iter() {
                 let line = self.col_line(&field, col_idx);
                 match line.solve(self.line_cache.borrow_mut().deref_mut()) {
-                    Some(changes) => for ass in changes {
-                        ass.apply(&mut field);
-                        changes_made = true;
-                        changed_rows.insert(ass.coords.0);
-                    },
+                    Some(changes) => {
+                        for ass in changes {
+                            ass.apply(&mut field);
+                            changes_made = true;
+                            changed_rows.insert(ass.coords.0);
+                        }
+                    }
                     None => return Controversial,
                 }
             }
@@ -118,11 +127,13 @@ impl Solver {
             for &row_idx in changed_rows.iter() {
                 let line = self.row_line(&field, row_idx);
                 match line.solve(self.line_cache.borrow_mut().deref_mut()) {
-                    Some(changes) => for ass in changes {
-                        ass.apply(&mut field);
-                        changes_made = true;
-                        changed_cols.insert(ass.coords.1);
-                    },
+                    Some(changes) => {
+                        for ass in changes {
+                            ass.apply(&mut field);
+                            changes_made = true;
+                            changed_cols.insert(ass.coords.1);
+                        }
+                    }
                     None => return Controversial,
                 }
             }
@@ -169,7 +180,7 @@ impl Solver {
             }
             let mut has_controversy = false;
             for val in KNOWN {
-               let ass = Assumption {coords, val };
+                let ass = Assumption { coords, val };
                 ass.apply(&mut field);
                 match self.do_solve(&field, depth + 1) {
                     Solved(res) => {
@@ -212,8 +223,14 @@ impl Solver {
             Solved(res) => {
                 assert_eq!(solutions, res);
                 Solved(res)
-            },
-            Unsolved => if has_updates { PartiallySolved(field) } else { Unsolved },
+            }
+            Unsolved => {
+                if has_updates {
+                    PartiallySolved(field)
+                } else {
+                    Unsolved
+                }
+            }
             PartiallySolved(fld) => PartiallySolved(fld),
             Controversial => Controversial,
         }
@@ -294,14 +311,18 @@ impl Solver {
         let by_lines = self.do_solve_by_lines(&field);
         match by_lines {
             Controversial | Solved(_) => return by_lines,
-            Unsolved => if self.max_depth_reached(depth) {
-                return Unsolved;
-            },
-            PartiallySolved(new_field) => if self.max_depth_reached(depth) {
-                return PartiallySolved(new_field);
-            } else {
-                field.replace(new_field);
-            },
+            Unsolved => {
+                if self.max_depth_reached(depth) {
+                    return Unsolved;
+                }
+            }
+            PartiallySolved(new_field) => {
+                if self.max_depth_reached(depth) {
+                    return PartiallySolved(new_field);
+                } else {
+                    field.replace(new_field);
+                }
+            }
         }
         if depth == 0 {
             println!("{}\n", field.to_string());
@@ -315,7 +336,7 @@ impl Solver {
                 PartiallySolved(new_field) => {
                     field.replace(new_field);
                     global_changed = true;
-                },
+                }
                 Unsolved => break,
             }
             if depth == 0 {
@@ -329,14 +350,18 @@ impl Solver {
                 PartiallySolved(new_field) => {
                     field.replace(new_field);
                     global_changed = true;
-                },
+                }
                 Unsolved => break,
             }
             if depth == 0 {
                 println!("{}\n", field.to_string());
             }
         }
-        if global_changed { PartiallySolved(field) } else { Unsolved }
+        if global_changed {
+            PartiallySolved(field)
+        } else {
+            Unsolved
+        }
     }
 
     pub fn solve_by_lines(&self) -> SolutionResult {
@@ -374,11 +399,10 @@ mod tests {
         let solver = Solver::from_hints(
             vec![vec![5], vec![1], vec![5], vec![1], vec![5]],
             vec![vec![3, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 3]],
-            None, false,
+            None,
+            false,
         );
-        solver
-            .do_solve_by_lines(&solver.create_field())
-            .assert_solved(&["\
+        solver.do_solve_by_lines(&solver.create_field()).assert_solved(&["\
                 *****\n\
                 *XXXX\n\
                 *****\n\
@@ -389,11 +413,7 @@ mod tests {
 
     #[test]
     fn solve_ambiguous_recursive() {
-        let solver = Solver::from_hints(
-            vec![vec![1], vec![1]],
-            vec![vec![1], vec![1]],
-            Some(3), true
-        );
+        let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], Some(3), true);
         solver.solve().assert_solved(&[
             "*X\n\
              X*\n",
@@ -404,11 +424,7 @@ mod tests {
 
     #[test]
     fn solve_ambiguous_2sat() {
-        let solver = Solver::from_hints(
-            vec![vec![1], vec![1]],
-            vec![vec![1], vec![1]],
-            Some(3), true,
-        );
+        let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], Some(3), true);
         solver.solve_2sat().assert_solved(&[
             "*X\n\
              X*\n",
@@ -422,7 +438,8 @@ mod tests {
         let solver = Solver::from_hints(
             vec![vec![1, 1], vec![1, 1]],
             vec![vec![1], vec![1], vec![], vec![1], vec![1]],
-            Some(2), true
+            Some(2),
+            true,
         );
         solver.solve().assert_solved(&[
             "*XX*X\n\
@@ -441,7 +458,8 @@ mod tests {
         let solver = Solver::from_hints(
             vec![vec![1, 1], vec![1, 1]],
             vec![vec![1], vec![1], vec![], vec![1], vec![1]],
-            Some(2), true
+            Some(2),
+            true,
         );
         solver.solve_2sat().assert_solved(&[
             "*XX*X\n\

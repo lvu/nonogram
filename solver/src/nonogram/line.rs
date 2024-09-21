@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::hash::BuildHasher;
-use crate::nonogram::common::KNOWN;
 use super::assumption::Assumption;
 use super::common::{line_to_str, CellValue, LineHints};
+use crate::nonogram::common::KNOWN;
+use std::collections::HashMap;
+use std::hash::BuildHasher;
 use CellValue::*;
 use LineType::*;
 
@@ -10,7 +10,10 @@ use LineType::*;
 mod tests;
 
 #[derive(Hash, Eq, PartialEq, Copy, Clone)]
-pub enum LineType {Row, Col}
+pub enum LineType {
+    Row,
+    Col,
+}
 
 pub struct Line<'a> {
     pub line_type: LineType,
@@ -97,7 +100,7 @@ impl<'a> Line<'a> {
                 if !self.verify() {
                     let new_val = val.invert();
                     self.cells[idx] = new_val;
-                    result.push(Assumption {coords: self.get_coords(idx), val: new_val});
+                    result.push(Assumption { coords: self.get_coords(idx), val: new_val });
                     continue 'idxs;
                 }
             }

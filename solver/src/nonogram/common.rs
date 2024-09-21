@@ -28,7 +28,6 @@ impl CellValue {
             Empty => Filled,
             _ => panic!("Cannot invert {self:?}"),
         }
-
     }
 }
 

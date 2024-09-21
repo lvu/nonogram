@@ -5,8 +5,11 @@ use itertools::Itertools;
 use line::{Line, LineCache, LineType};
 use reachability_graph::ReachabilityGraph;
 use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
 use std::io;
 use LineType::*;
+use std::hash::BuildHasherDefault;
+use ahash::AHasher;
 
 mod assumption;
 mod common;
@@ -69,7 +72,7 @@ impl Solver {
         Line { line_type: Col, line_idx: col_idx, hints: &self.col_hints[col_idx], cells: field.col(col_idx) }
     }
 
-    fn do_solve_by_lines(&self, field: &Field, line_cache: &mut LineCache) -> SolutionResult {
+    fn do_solve_by_lines<S: BuildHasher>(&self, field: &Field, line_cache: &mut LineCache<S>) -> SolutionResult {
         let mut field = field.clone();
         let mut changes_made = false;
         for row_idx in 0..self.nrows() {
@@ -139,11 +142,11 @@ impl Solver {
         self.max_depth.map(|d| depth > d).unwrap_or(false)
     }
 
-    fn do_solve(
+    fn do_solve<S: BuildHasher>(
         &self,
         field: &Field,
         depth: usize,
-        line_cache: &mut LineCache,
+        line_cache: &mut LineCache<S>,
     ) -> SolutionResult {
         if self.max_depth_reached(depth) {
             return Unsolved;
@@ -215,7 +218,7 @@ impl Solver {
         }
     }
 
-    fn apply_impossible_matches(&self, field: &Field, reach: &ReachabilityGraph<Assumption>, line_cache: &mut LineCache) -> SolutionResult {
+    fn apply_impossible_matches<S: BuildHasher>(&self, field: &Field, reach: &ReachabilityGraph<Assumption>, line_cache: &mut LineCache<S>) -> SolutionResult {
         let mut field = field.clone();
         let mut changed = false;
         for ass in reach.get_impossible() {
@@ -237,11 +240,11 @@ impl Solver {
         }
     }
 
-    fn do_2sat_step<F: Fn(&Field, usize, &mut LineCache) -> SolutionResult>(
+    fn do_2sat_step<F: Fn(&Field, usize, &mut LineCache<S>) -> SolutionResult, S: BuildHasher>(
         &self,
         field: &Field,
         depth: usize,
-        line_cache: &mut LineCache,
+        line_cache: &mut LineCache<S>,
         recurse: F,
     ) -> SolutionResult {
         let mut field = field.clone();
@@ -286,11 +289,11 @@ impl Solver {
         self.apply_impossible_matches(&field, &reach, line_cache)
     }
 
-    fn do_solve_2sat(
+    fn do_solve_2sat<S: BuildHasher>(
         &self,
         field: &Field,
         depth: usize,
-        line_cache: &mut LineCache,
+        line_cache: &mut LineCache<S>,
     ) -> SolutionResult {
         let mut field = field.clone();
         let by_lines = self.do_solve_by_lines(&field, line_cache);
@@ -342,15 +345,18 @@ impl Solver {
     }
 
     pub fn solve_by_lines(&self) -> SolutionResult {
-        self.do_solve_by_lines(&self.create_field(), &mut HashMap::new())
+        let mut cache: HashMap<_, _, BuildHasherDefault<AHasher>> = HashMap::default();
+        self.do_solve_by_lines(&self.create_field(), &mut cache)
     }
 
     pub fn solve(&self) -> SolutionResult {
-        self.do_solve(&self.create_field(), 0, &mut HashMap::new())
+        let mut cache: HashMap<_, _, BuildHasherDefault<AHasher>> = HashMap::default();
+        self.do_solve(&self.create_field(), 0, &mut cache)
     }
 
     pub fn solve_2sat(&self) -> SolutionResult {
-        self.do_solve_2sat(&self.create_field(), 0, &mut HashMap::new())
+        let mut cache: HashMap<_, _, BuildHasherDefault<AHasher>> = HashMap::default();
+        self.do_solve_2sat(&self.create_field(), 0, &mut cache)
     }
 }
 

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 use crate::nonogram::common::KNOWN;
 use super::assumption::Assumption;
 use super::common::{line_to_str, CellValue, LineHints};
@@ -110,7 +111,7 @@ impl<'a> Line<'a> {
     /// Solves the line to the extent currently possbile.
     ///
     /// Returns updates as a list of Assumption if the line wasn't controversial, None otherwise.
-    pub fn solve<'b>(self, cache: &'b mut LineCache) -> &'b Option<Vec<Assumption>> {
+    pub fn solve<'b, S: BuildHasher>(self, cache: &'b mut LineCache<S>) -> &'b Option<Vec<Assumption>> {
         let cache_key = self.cache_key();
         cache.entry(cache_key).or_insert_with(move || Box::new(self.do_solve()))
     }
@@ -123,4 +124,4 @@ pub struct LineCacheKey {
     cells: Vec<u8>,
 }
 
-pub type LineCache = HashMap<LineCacheKey, Box<Option<Vec<Assumption>>>>;
+pub type LineCache<S> = HashMap<LineCacheKey, Box<Option<Vec<Assumption>>>, S>;

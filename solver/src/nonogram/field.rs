@@ -46,9 +46,4 @@ impl Field {
         self.rows[row_idx][col_idx] = val;
         self.cols[col_idx][row_idx] = val;
     }
-
-    pub fn replace(&mut self, mut other: Self) {
-        std::mem::swap(&mut self.rows, &mut other.rows);
-        std::mem::swap(&mut self.cols, &mut other.cols);
-    }
 }

@@ -67,19 +67,19 @@ impl<'a> Line<'a> {
     }
 
     fn cache_key(&self) -> LineCacheKey {
-        let mut packed_cells = Vec::with_capacity(self.cells.len() / 4 + 1);
-        let mut cnt: u8 = 0;
-        let mut acc: u8 = 0;
-        for &val in self.cells.iter() {
-            acc = (acc << 2) | (val as u8);
-            cnt += 1;
-            if cnt == 4 {
-                packed_cells.push(acc);
-                cnt = 0;
-                acc = 0;
-            }
+        let mut packed_cells = vec![0u8; (self.cells.len() + 3) / 4];
+        let mut idx = 0;
+        for chunk in self.cells.chunks(4) {
+            let c = match chunk {
+                [b1, b2, b3, b4] => ((*b1 as u8) << 6) | ((*b2 as u8) << 4) | ((*b3 as u8) << 2) | (*b4 as u8),
+                [b1, b2, b3] => ((*b1 as u8) << 4) | ((*b2 as u8) << 2) | (*b3 as u8),
+                [b1, b2] => ((*b1 as u8) << 2) | (*b2 as u8),
+                [b1] => *b1 as u8,
+                _ => panic!("Impossible chunk: {chunk:?}")
+            };
+            packed_cells[idx] = c;
+            idx += 1;
         }
-        packed_cells.push(acc);
         LineCacheKey { line_type: self.line_type, line_idx: self.line_idx, cells: packed_cells }
     }
 

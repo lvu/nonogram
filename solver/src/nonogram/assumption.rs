@@ -2,7 +2,6 @@ use super::common::{CellValue, Unknown};
 use super::reachability_graph::ReachabilityGraph;
 use super::Field;
 use itertools::Itertools;
-use std::iter;
 
 #[derive(Debug, Default, Hash, Eq, PartialEq, Clone)]
 pub struct Assumption {

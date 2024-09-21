@@ -2,6 +2,7 @@ use super::common::{CellValue, Unknown};
 use super::reachability_graph::ReachabilityGraph;
 use super::Field;
 use itertools::Itertools;
+use std::iter;
 
 #[derive(Debug, Default, Hash, Eq, PartialEq, Clone)]
 pub struct Assumption {
@@ -35,13 +36,10 @@ impl ReachabilityGraph<Assumption> {
         false
     }
 
-    pub fn get_impossible(&self) -> Vec<&Assumption> {
-        let mut result: Vec<&Assumption> = Vec::new();
-        for scc in self.strongly_connected_components().iter() {
-            if self.is_impossible(scc[0]) {
-                result.extend(scc.iter());
-            }
-        }
-        result
+    pub fn get_impossible(&self) -> impl Iterator<Item = &Assumption> {
+        self.strongly_connected_components()
+            .into_iter()
+            .filter(|scc| self.is_impossible(scc[0]))
+            .flatten()
     }
 }

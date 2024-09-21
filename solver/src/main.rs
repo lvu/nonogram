@@ -1,10 +1,10 @@
 use clap::{Parser, ValueEnum};
+use nonogram::{SolutionResult, Solver};
 use std::io;
 use std::time::Instant;
+use SolutionResult::*;
 
 mod nonogram;
-
-use nonogram::{Controversial, PartiallySolved, Solved, Solver, Unsolved};
 
 #[derive(ValueEnum, Debug, Clone)]
 enum SolverType {
@@ -45,8 +45,11 @@ fn main() {
                 println!("{}\n", fld.to_string());
             }
         }
-        Unsolved => println!("Cannot solve at all"),
-        PartiallySolved(fld) => println!("Cannot solve; info so far: \n{}", fld.to_string()),
+        Unsolved(changes) => {
+            let mut fld = solver.create_field();
+            changes.iter().for_each(|ass| ass.apply(&mut fld));
+            println!("Cannot solve; info so far: \n{}", fld.to_string())
+        }
         Controversial => println!("Controversial"),
     }
     println!("Elapsed: {:?}", start.elapsed());

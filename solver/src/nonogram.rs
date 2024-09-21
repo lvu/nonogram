@@ -23,8 +23,7 @@ type MultiSolution = HashSet<Field>;
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum SolutionResult {
     Controversial,
-    Unsolved,
-    PartiallySolved(Field),
+    Unsolved(Vec<Assumption>),
     Solved(MultiSolution),
 }
 
@@ -63,7 +62,7 @@ impl Solver {
         Self { row_hints, col_hints, max_depth, find_all, line_cache: RefCell::new(HashMap::default()) }
     }
 
-    fn create_field(&self) -> Field {
+    pub fn create_field(&self) -> Field {
         Field::new(self.nrows(), self.ncols())
     }
 
@@ -85,15 +84,12 @@ impl Solver {
 
     fn do_solve_by_lines(&self, field: &Field) -> SolutionResult {
         let mut field = field.clone();
-        let mut changes_made = false;
+        let mut all_changes: Vec<Assumption> = Vec::new();
         for row_idx in 0..self.nrows() {
             let mut line = self.row_line(&field, row_idx);
             match line.solve(self.line_cache.borrow_mut().deref_mut()) {
                 Some(changes) => {
-                    for ass in changes {
-                        ass.apply(&mut field);
-                        changes_made = true;
-                    }
+                    apply_changes(changes, &mut field, &mut all_changes);
                 }
                 None => return Controversial,
             }
@@ -107,9 +103,8 @@ impl Solver {
                 let mut line = self.col_line(&field, col_idx);
                 match line.solve(self.line_cache.borrow_mut().deref_mut()) {
                     Some(changes) => {
+                        apply_changes(changes, &mut field, &mut all_changes);
                         for ass in changes {
-                            ass.apply(&mut field);
-                            changes_made = true;
                             changed_rows.insert(ass.coords.0);
                         }
                     }
@@ -120,7 +115,7 @@ impl Solver {
                 return Solved(HashSet::from([field]));
             }
             if changed_rows.is_empty() {
-                return if changes_made { PartiallySolved(field) } else { Unsolved };
+                return Unsolved(all_changes);
             }
 
             changed_cols.clear();
@@ -128,9 +123,8 @@ impl Solver {
                 let mut line = self.row_line(&field, row_idx);
                 match line.solve(self.line_cache.borrow_mut().deref_mut()) {
                     Some(changes) => {
+                        apply_changes(changes, &mut field, &mut all_changes);
                         for ass in changes {
-                            ass.apply(&mut field);
-                            changes_made = true;
                             changed_cols.insert(ass.coords.1);
                         }
                     }
@@ -141,7 +135,7 @@ impl Solver {
                 return Solved(HashSet::from([field]));
             }
             if changed_cols.is_empty() {
-                return if changes_made { PartiallySolved(field) } else { Unsolved };
+                return Unsolved(all_changes);
             }
         }
     }
@@ -161,19 +155,18 @@ impl Solver {
 
     fn do_solve(&self, field: &Field, depth: usize) -> SolutionResult {
         if self.max_depth_reached(depth) {
-            return Unsolved;
+            return Unsolved(Vec::new());
         }
         let mut field = field.clone();
+        let mut all_changes = Vec::new();
         let by_lines = self.do_solve_by_lines(&field);
         match by_lines {
             Controversial | Solved(_) => return by_lines,
-            PartiallySolved(new_field) => field.replace(new_field),
-            Unsolved => (),
+            Unsolved(changes) => apply_changes(&changes, &mut field, &mut all_changes),
         };
 
         let mut solutions = HashSet::new();
         let mut has_unsolved = false;
-        let mut has_updates = false;
         for coords in self.iter_coords() {
             if field.get(coords) != Unknown {
                 continue;
@@ -190,7 +183,7 @@ impl Solver {
                         }
                         ass.unapply(&mut field);
                     }
-                    Unsolved | PartiallySolved(_) => {
+                    Unsolved(_) => {
                         has_unsolved = true;
                         ass.unapply(&mut field);
                     }
@@ -201,8 +194,7 @@ impl Solver {
                         ass.invert().apply(&mut field);
                         match self.do_solve_by_lines(&field) {
                             Controversial => return Controversial,
-                            PartiallySolved(new_field) => field.replace(new_field),
-                            Unsolved => (),
+                            Unsolved(changes) => apply_changes(&changes, &mut field, &mut all_changes),
                             Solved(res) => {
                                 solutions.extend(res);
                                 if !self.find_all {
@@ -210,7 +202,6 @@ impl Solver {
                                 }
                             }
                         }
-                        has_updates = true;
                         has_controversy = true;
                     }
                 }
@@ -224,36 +215,36 @@ impl Solver {
                 assert_eq!(solutions, res);
                 Solved(res)
             }
-            Unsolved => {
-                if has_updates {
-                    PartiallySolved(field)
-                } else {
-                    Unsolved
-                }
+            Unsolved(changes) => {
+                all_changes.extend(changes);
+                Unsolved(all_changes)
             }
-            PartiallySolved(fld) => PartiallySolved(fld),
             Controversial => Controversial,
         }
     }
 
     fn apply_impossible_matches(&self, field: &Field, reach: &ReachabilityGraph<Assumption>) -> SolutionResult {
         let mut field = field.clone();
-        let mut changed = false;
+        let mut all_changes = Vec::new();
         for ass in reach.get_impossible() {
             let old_val = field.get(ass.coords);
             if old_val == Unknown {
-                ass.invert().apply(&mut field);
-                changed = true;
+                let ass_inv = ass.invert();
+                ass_inv.apply(&mut field);
+                all_changes.push(ass_inv);
             } else if old_val == ass.val {
                 return Controversial;
             }
         }
-        if !changed {
-            return Unsolved;
+        if all_changes.is_empty() {
+            return Unsolved(all_changes);
         }
         let by_lines = self.do_solve_by_lines(&field);
         match by_lines {
-            Unsolved => PartiallySolved(field),
+            Unsolved(changes) => {
+                all_changes.extend_from_slice(&changes);
+                Unsolved(all_changes)
+            }
             _ => by_lines,
         }
     }
@@ -265,7 +256,7 @@ impl Solver {
         recurse: F,
     ) -> SolutionResult {
         let mut field = field.clone();
-        let mut reach: ReachabilityGraph<Assumption> = ReachabilityGraph::new();
+        let mut reach = ReachabilityGraph::new();
         let mut solutions = HashSet::new();
         let mut has_unsolved = false;
         for ass1 in self.iter_assumptions() {
@@ -282,7 +273,7 @@ impl Solver {
                 }
                 ass2.apply(&mut field);
                 match recurse(&field, depth + 1) {
-                    Unsolved | PartiallySolved(_) => has_unsolved = true,
+                    Unsolved(_) => has_unsolved = true,
                     Solved(res) => {
                         solutions.extend(res);
                         if !self.find_all {
@@ -308,36 +299,31 @@ impl Solver {
 
     fn do_solve_2sat(&self, field: &Field, depth: usize) -> SolutionResult {
         let mut field = field.clone();
+        let mut all_changes = Vec::new();
         let by_lines = self.do_solve_by_lines(&field);
         match by_lines {
             Controversial | Solved(_) => return by_lines,
-            Unsolved => {
+            Unsolved(changes) => {
                 if self.max_depth_reached(depth) {
-                    return Unsolved;
+                    return Unsolved(changes);
                 }
-            }
-            PartiallySolved(new_field) => {
-                if self.max_depth_reached(depth) {
-                    return PartiallySolved(new_field);
-                } else {
-                    field.replace(new_field);
-                }
+                apply_changes(&changes, &mut field, &mut all_changes);
             }
         }
         if depth == 0 {
             println!("{}\n", field.to_string());
         }
 
-        let mut global_changed = false;
         loop {
             let by_step = self.do_2sat_step(&field, depth, |fld, _| self.do_solve_by_lines(fld));
             match by_step {
                 Solved(_) | Controversial => return by_step,
-                PartiallySolved(new_field) => {
-                    field.replace(new_field);
-                    global_changed = true;
+                Unsolved(changes) => {
+                    if changes.is_empty() {
+                        break;
+                    }
+                    apply_changes(&changes, &mut field, &mut all_changes);
                 }
-                Unsolved => break,
             }
             if depth == 0 {
                 println!("{}\n", field.to_string());
@@ -347,21 +333,18 @@ impl Solver {
             let by_step = self.do_2sat_step(&field, depth, |fld, d| self.do_solve_2sat(fld, d + 1));
             match by_step {
                 Solved(_) | Controversial => return by_step,
-                PartiallySolved(new_field) => {
-                    field.replace(new_field);
-                    global_changed = true;
+                Unsolved(changes) => {
+                    if changes.is_empty() {
+                        break;
+                    }
+                    apply_changes(&changes, &mut field, &mut all_changes);
                 }
-                Unsolved => break,
             }
             if depth == 0 {
                 println!("{}\n", field.to_string());
             }
         }
-        if global_changed {
-            PartiallySolved(field)
-        } else {
-            Unsolved
-        }
+        Unsolved(all_changes)
     }
 
     pub fn solve_by_lines(&self) -> SolutionResult {
@@ -375,6 +358,11 @@ impl Solver {
     pub fn solve_2sat(&self) -> SolutionResult {
         self.do_solve_2sat(&self.create_field(), 0)
     }
+}
+
+fn apply_changes(changes: &[Assumption], field: &mut Field, all_changes: &mut Vec<Assumption>) {
+    all_changes.extend_from_slice(&changes);
+    changes.iter().for_each(|ass| ass.apply(field));
 }
 
 #[cfg(test)]

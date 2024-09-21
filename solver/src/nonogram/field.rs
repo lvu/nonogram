@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use ndarray::{Array, Array2, ArrayViewMut1};
+use ndarray::{Array, Array2};
 
 use super::common::{line_to_str, CellValue, Unknown};
 
@@ -12,7 +12,7 @@ pub struct Field {
 impl Display for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for row in self.data.rows() {
-            writeln!(f, "{}", line_to_str(&row))?;
+            writeln!(f, "{}", line_to_str(&row.to_vec()))?;
         }
         Ok(())
     }
@@ -27,12 +27,12 @@ impl Field {
         self.data.iter().all(|&x| x != Unknown)
     }
 
-    pub fn row_mut(&mut self, idx: usize) -> ArrayViewMut1<CellValue> {
-        self.data.row_mut(idx)
+    pub fn row(&self, idx: usize) -> Vec<CellValue> {
+        self.data.row(idx).to_vec()
     }
 
-    pub fn col_mut(&mut self, idx: usize) -> ArrayViewMut1<CellValue> {
-        self.data.column_mut(idx)
+    pub fn col(&self, idx: usize) -> Vec<CellValue> {
+        self.data.column(idx).to_vec()
     }
 
     pub fn get(&self, coords: (usize, usize)) -> CellValue {

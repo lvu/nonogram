@@ -1,5 +1,3 @@
-use ndarray::{ArrayBase, Data, Ix1};
-
 #[derive(Debug, Hash, Eq, PartialEq, Copy, Clone)]
 pub enum CellValue {
     Filled,
@@ -13,7 +11,7 @@ pub const KNOWN: [CellValue; 2] = [Filled, Empty];
 
 pub type LineHints = Vec<usize>;
 
-pub fn line_to_str<T: Data<Elem = CellValue>>(line: &ArrayBase<T, Ix1>) -> String {
+pub fn line_to_str(line: &Vec<CellValue>) -> String {
     line.iter()
         .map(|x| match *x {
             Unknown => '.',

@@ -1,10 +1,10 @@
-use ndarray::Array1;
+use std::collections::HashSet;
 
 use super::*;
 
 struct OwnedLine {
     hints: LineHints,
-    cells: Array1<CellValue>,
+    cells: Vec<CellValue>,
 }
 
 impl OwnedLine {
@@ -17,19 +17,19 @@ impl OwnedLine {
                 'X' => Ok(Empty),
                 _ => Err(std::fmt::Error),
             })
-            .collect::<Result<Array1<CellValue>, std::fmt::Error>>()?;
+            .collect::<Result<Vec<CellValue>, std::fmt::Error>>()?;
         Ok(Self { hints, cells })
     }
 
-    fn line(&mut self) -> Line {
-        Line { hints: &self.hints, cells: self.cells.view_mut() }
+    fn line(&self) -> Line {
+        Line { line_type: Row, line_idx: 0, hints: &self.hints, cells: self.cells.clone() }
     }
 }
 
 #[test]
 fn serialization_works() {
     let s = "*..X.**";
-    let mut ol = OwnedLine::create(vec![2, 3], s).unwrap();
+    let ol = OwnedLine::create(vec![2, 3], s).unwrap();
     assert_eq!(ol.line().to_string(), s);
 }
 
@@ -41,75 +41,85 @@ fn serialization_fails() {
 
 #[test]
 fn verify_plenty_space() {
-    let mut ol = OwnedLine::create(vec![2, 3], "......").unwrap();
+    let ol = OwnedLine::create(vec![2, 3], "......").unwrap();
     assert!(ol.line().verify());
 }
 
 #[test]
 fn verify_not_enough_space() {
-    let mut ol = OwnedLine::create(vec![2, 3], ".....").unwrap();
+    let ol = OwnedLine::create(vec![2, 3], ".....").unwrap();
     assert!(!ol.line().verify());
 }
 
 #[test]
 fn verify_separated_enough_space() {
-    let mut ol = OwnedLine::create(vec![2, 3], "X..X.*.X").unwrap();
+    let ol = OwnedLine::create(vec![2, 3], "X..X.*.X").unwrap();
     assert!(ol.line().verify());
 }
 
 #[test]
 fn verify_separated_not_enough_space() {
-    let mut ol = OwnedLine::create(vec![2, 3], "X..X*.X").unwrap();
+    let ol = OwnedLine::create(vec![2, 3], "X..X*.X").unwrap();
     assert!(!ol.line().verify());
 }
 
 #[test]
 fn verify_unsatisfialble_filled() {
-    let mut ol = OwnedLine::create(vec![2, 3], "..*...").unwrap();
+    let ol = OwnedLine::create(vec![2, 3], "..*...").unwrap();
     assert!(!ol.line().verify());
 }
 
 #[test]
 fn verify_unsatisfialble_filled_with_frame() {
-    let mut ol = OwnedLine::create(vec![2, 3], "X..*...X").unwrap();
+    let ol = OwnedLine::create(vec![2, 3], "X..*...X").unwrap();
     assert!(!ol.line().verify());
 }
 
 #[test]
 fn verify_split_with_badly_filled_left() {
-    let mut ol = OwnedLine::create(vec![2, 3], "*..*X...").unwrap();
+    let ol = OwnedLine::create(vec![2, 3], "*..*X...").unwrap();
     assert!(!ol.line().verify());
 }
 
 #[test]
 fn verify_too_many_filled() {
-    let mut ol = OwnedLine::create(vec![2, 3], "*..X.*.X*").unwrap();
+    let ol = OwnedLine::create(vec![2, 3], "*..X.*.X*").unwrap();
     assert!(!ol.line().verify());
 }
 
 #[test]
 fn verify_split_with_fine_left() {
-    let mut ol = OwnedLine::create(vec![2, 3], "*..*X..").unwrap();
+    let ol = OwnedLine::create(vec![2, 3], "*..*X..").unwrap();
     assert!(!ol.line().verify());
 }
 
 #[test]
 fn solve_simple_overlap_and_unreachable() {
-    let mut ol = OwnedLine::create(vec![4], ".....*..").unwrap();
-    assert_eq!(ol.line().solve(&mut HashMap::new()), Some(HashSet::from([0, 1, 4])));
-    assert_eq!(ol.line().to_string(), "XX..**..");
+    let ol = OwnedLine::create(vec![4], ".....*..").unwrap();
+    let changes: HashSet<Assumption> = ol.line().solve(&mut HashMap::new()).unwrap().into_iter().collect();
+    assert_eq!(changes, HashSet::from([
+        Assumption{coords: (0, 0), val: Empty},
+        Assumption{coords: (0, 1), val: Empty},
+        Assumption{coords: (0, 4), val: Filled},
+    ]));
 }
 
 #[test]
 fn solve_fill_with_ambiguity() {
-    let mut ol = OwnedLine::create(vec![1, 2], "...*X..").unwrap();
-    assert_eq!(ol.line().solve(&mut HashMap::new()), Some(HashSet::from([1])));
-    assert_eq!(ol.line().to_string(), ".X.*X..");
+    let ol = OwnedLine::create(vec![1, 2], "...*X..").unwrap();
+    let changes: HashSet<Assumption> = ol.line().solve(&mut HashMap::new()).unwrap().into_iter().collect();
+    assert_eq!(changes, HashSet::from([
+        Assumption{coords: (0, 1), val: Empty},
+    ]));
 }
 
 #[test]
 fn solve_empties_with_definite_chunks() {
-    let mut ol = OwnedLine::create(vec![2, 1], "...X.*.X*").unwrap();
-    assert_eq!(ol.line().solve(&mut HashMap::new()), Some(HashSet::from([0, 1, 2])));
-    assert_eq!(ol.line().to_string(), "XXXX.*.X*");
+    let ol = OwnedLine::create(vec![2, 1], "...X.*.X*").unwrap();
+    let changes: HashSet<Assumption> = ol.line().solve(&mut HashMap::new()).unwrap().into_iter().collect();
+    assert_eq!(changes, HashSet::from([
+        Assumption{coords: (0, 0), val: Empty},
+        Assumption{coords: (0, 1), val: Empty},
+        Assumption{coords: (0, 2), val: Empty},
+    ]));
 }

@@ -2,10 +2,11 @@ use assumption::Assumption;
 use common::{LineHints, KNOWN, Unknown};
 use field::Field;
 use itertools::Itertools;
-use line::{Line, LineCache};
+use line::{Line, LineCache, LineType};
 use reachability_graph::ReachabilityGraph;
 use std::collections::{HashMap, HashSet};
 use std::io;
+use LineType::*;
 
 mod assumption;
 mod common;
@@ -60,20 +61,25 @@ impl Solver {
         self.col_hints.len()
     }
 
-    fn row_line<'a>(&'a self, field: &'a mut Field, row_idx: usize) -> Line {
-        Line { hints: &self.row_hints[row_idx], cells: field.row_mut(row_idx) }
+    fn row_line<'a>(&'a self, field: &'a Field, row_idx: usize) -> Line {
+        Line { line_type: Row, line_idx: row_idx, hints: &self.row_hints[row_idx], cells: field.row(row_idx) }
     }
 
-    fn col_line<'a>(&'a self, field: &'a mut Field, col_idx: usize) -> Line {
-        Line { hints: &self.col_hints[col_idx], cells: field.col_mut(col_idx) }
+    fn col_line<'a>(&'a self, field: &'a Field, col_idx: usize) -> Line {
+        Line { line_type: Col, line_idx: col_idx, hints: &self.col_hints[col_idx], cells: field.col(col_idx) }
     }
 
     fn do_solve_by_lines(&self, field: &Field, line_cache: &mut LineCache) -> SolutionResult {
-        let mut new_field = field.clone();
+        let mut field = field.clone();
+        let mut changes_made = false;
         for row_idx in 0..self.nrows() {
-            let mut line = self.row_line(&mut new_field, row_idx);
-            if line.solve(line_cache).is_none() {
-                return Controversial;
+            let line = self.row_line(&field, row_idx);
+            match line.solve(line_cache) {
+                Some(changes) => for ass in changes {
+                    ass.apply(&mut field);
+                    changes_made = true;
+                },
+                None => return Controversial,
             }
         }
 
@@ -82,38 +88,40 @@ impl Solver {
         loop {
             changed_rows.clear();
             for &col_idx in changed_cols.iter() {
-                let mut line = self.col_line(&mut new_field, col_idx);
+                let line = self.col_line(&field, col_idx);
                 match line.solve(line_cache) {
-                    Some(ch) => changed_rows.extend(ch.iter()),
+                    Some(changes) => for ass in changes {
+                        ass.apply(&mut field);
+                        changes_made = true;
+                        changed_rows.insert(ass.coords.0);
+                    },
                     None => return Controversial,
                 }
             }
+            if field.is_solved() {
+                return Solved(HashSet::from([field]));
+            }
             if changed_rows.is_empty() {
-                return if new_field.is_solved() {
-                    Solved(HashSet::from([new_field]))
-                } else if new_field != *field {
-                    PartiallySolved(new_field)
-                } else {
-                    Unsolved
-                };
+                return if changes_made { PartiallySolved(field) } else { Unsolved };
             }
 
             changed_cols.clear();
             for &row_idx in changed_rows.iter() {
-                let mut line = self.row_line(&mut new_field, row_idx);
+                let line = self.row_line(&field, row_idx);
                 match line.solve(line_cache) {
-                    Some(ch) => changed_cols.extend(ch.iter()),
+                    Some(changes) => for ass in changes {
+                        ass.apply(&mut field);
+                        changes_made = true;
+                        changed_cols.insert(ass.coords.1);
+                    },
                     None => return Controversial,
                 }
             }
+            if field.is_solved() {
+                return Solved(HashSet::from([field]));
+            }
             if changed_cols.is_empty() {
-                return if new_field.is_solved() {
-                    Solved(HashSet::from([new_field]))
-                } else if new_field != *field {
-                    PartiallySolved(new_field)
-                } else {
-                    Unsolved
-                };
+                return if changes_made { PartiallySolved(field) } else { Unsolved };
             }
         }
     }

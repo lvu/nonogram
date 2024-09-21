@@ -1,15 +1,21 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use crate::nonogram::common::KNOWN;
+use super::assumption::Assumption;
+use super::common::{line_to_str, CellValue, LineHints};
+use CellValue::*;
+use LineType::*;
 
 #[cfg(test)]
 mod tests;
 
-use ndarray::{s, Array1, ArrayViewMut1};
-
-use super::common::{line_to_str, CellValue, LineHints, Empty, Filled, Unknown};
+#[derive(Hash, Eq, PartialEq, Copy, Clone)]
+pub enum LineType {Row, Col}
 
 pub struct Line<'a> {
+    pub line_type: LineType,
+    pub line_idx: usize,
     pub hints: &'a LineHints,
-    pub cells: ArrayViewMut1<'a, CellValue>,
+    pub cells: Vec<CellValue>,
 }
 
 impl<'a> Line<'a> {
@@ -22,7 +28,7 @@ impl<'a> Line<'a> {
         if cells_offset >= self.cells.len() {
             return hint_idx == self.hints.len();
         }
-        let cells = self.cells.slice(s![cells_offset..]);
+        let cells = &self.cells[cells_offset..];
         if hint_idx == self.hints.len() {
             return cells.iter().all(|&x| x != Filled);
         }
@@ -32,9 +38,9 @@ impl<'a> Line<'a> {
         if current_hint > size {
             return false;
         }
-        for (start, &val) in cells.slice(s![..size - current_hint + 1]).indexed_iter() {
+        for (start, &val) in cells[..size - current_hint + 1].iter().enumerate() {
             let end = start + current_hint;
-            if cells.slice(s![start..end]).iter().all(|&x| x != Empty)
+            if cells[start..end].iter().all(|&x| x != Empty)
                 && (end == size || cells[end] != Filled)
                 && self.do_verify(hint_idx + 1, cells_offset + end + 1)
             {
@@ -65,62 +71,57 @@ impl<'a> Line<'a> {
             }
         }
         cells.push(acc);
-        LineCacheKey { hints: self.hints.clone(), len: self.cells.len(), cells }
+        LineCacheKey { line_type: self.line_type, line_idx: self.line_idx, cells }
+    }
+
+    fn get_coords(&self, idx: usize) -> (usize, usize) {
+        match self.line_type {
+            Row => (self.line_idx, idx),
+            Col => (idx, self.line_idx),
+        }
     }
 
     /// Solves the line to the extent currently possbile, in-place.
     ///
     /// Returns a set of indexes updated if the line wasn't controversial, None therwise.
-    pub fn solve(&mut self, cache: &mut LineCache) -> Option<HashSet<usize>> {
+    pub fn solve(mut self, cache: &mut LineCache) -> Option<Vec<Assumption>> {
         let cache_key = self.cache_key();
         if let Some(cache_value) = cache.get(&cache_key) {
-            match cache_value {
-                Some((result, new_cells)) => {
-                    if self.cells != new_cells {
-                        self.cells.assign(new_cells);
-                    }
-                    return Some(result.clone());
-                }
-                None => return None,
-            }
+            return cache_value.clone();
         }
         if !self.verify() {
             cache.insert(cache_key, None);
             return None;
         }
-        let mut result = HashSet::new();
-        for idx in 0..self.cells.len() {
+        let mut result = Vec::new();
+        'idxs: for idx in 0..self.cells.len() {
             if self.cells[idx] != Unknown {
                 continue;
             }
 
-            self.cells[idx] = Filled;
-            if !self.verify() {
-                self.cells[idx] = Empty;
-                result.insert(idx);
-                continue;
-            }
-
-            self.cells[idx] = Empty;
-            if !self.verify() {
-                self.cells[idx] = Filled;
-                result.insert(idx);
-                continue;
+            for &val in KNOWN.iter() {
+                self.cells[idx] = val;
+                if !self.verify() {
+                    let new_val = val.invert();
+                    self.cells[idx] = new_val;
+                    result.push(Assumption {coords: self.get_coords(idx), val: new_val});
+                    continue 'idxs;
+                }
             }
 
             self.cells[idx] = Unknown;
         }
         debug_assert!(self.verify());
-        cache.insert(cache_key, Some((result.clone(), self.cells.to_owned())));
+        cache.insert(cache_key, Some(result.clone()));
         Some(result)
     }
 }
 
 #[derive(Hash, Eq, PartialEq)]
 pub struct LineCacheKey {
-    hints: LineHints,
-    len: usize,
+    line_type: LineType,
+    line_idx: usize,
     cells: Vec<u8>,
 }
 
-pub type LineCache = HashMap<LineCacheKey, Option<(HashSet<usize>, Array1<CellValue>)>>;
+pub type LineCache = HashMap<LineCacheKey, Option<Vec<Assumption>>>;

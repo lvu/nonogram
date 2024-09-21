@@ -22,7 +22,7 @@ impl OwnedLine {
     }
 
     fn line(&self) -> Line {
-        Line { line_type: Row, line_idx: 0, hints: &self.hints, cells: self.cells.clone() }
+        Line::new(Row, 0, &self.hints, &self.cells)
     }
 }
 

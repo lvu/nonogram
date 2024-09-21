@@ -1,6 +1,7 @@
 use super::assumption::Assumption;
 use super::common::{line_to_str, CellValue, LineHints};
 use crate::nonogram::common::KNOWN;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 use CellValue::*;
@@ -19,10 +20,14 @@ pub struct Line<'a> {
     pub line_type: LineType,
     pub line_idx: usize,
     pub hints: &'a LineHints,
-    pub cells: Vec<CellValue>,
+    pub cells: Cow<'a, [CellValue]>,
 }
 
 impl<'a> Line<'a> {
+    pub fn new(line_type: LineType, line_idx: usize, hints: &'a LineHints, cells: &'a [CellValue]) -> Self {
+        Self { line_type, line_idx, hints, cells: Cow::from(cells) }
+    }
+
     #[allow(dead_code)]
     fn to_string(&self) -> String {
         line_to_str(&self.cells)
@@ -62,20 +67,20 @@ impl<'a> Line<'a> {
     }
 
     fn cache_key(&self) -> LineCacheKey {
-        let mut cells = Vec::with_capacity(self.cells.len() / 4 + 1);
+        let mut packed_cells = Vec::with_capacity(self.cells.len() / 4 + 1);
         let mut cnt: u8 = 0;
         let mut acc: u8 = 0;
         for &val in self.cells.iter() {
             acc = (acc << 2) | (val as u8);
             cnt += 1;
             if cnt == 4 {
-                cells.push(acc);
+                packed_cells.push(acc);
                 cnt = 0;
                 acc = 0;
             }
         }
-        cells.push(acc);
-        LineCacheKey { line_type: self.line_type, line_idx: self.line_idx, cells }
+        packed_cells.push(acc);
+        LineCacheKey { line_type: self.line_type, line_idx: self.line_idx, cells: packed_cells }
     }
 
     fn get_coords(&self, idx: usize) -> (usize, usize) {
@@ -85,7 +90,7 @@ impl<'a> Line<'a> {
         }
     }
 
-    fn do_solve(mut self) -> Option<Vec<Assumption>> {
+    fn do_solve(&mut self) -> Option<Vec<Assumption>> {
         if !self.verify() {
             return None;
         }
@@ -96,16 +101,16 @@ impl<'a> Line<'a> {
             }
 
             for &val in KNOWN.iter() {
-                self.cells[idx] = val;
+                self.cells.to_mut()[idx] = val;
                 if !self.verify() {
                     let new_val = val.invert();
-                    self.cells[idx] = new_val;
+                    self.cells.to_mut()[idx] = new_val;
                     result.push(Assumption { coords: self.get_coords(idx), val: new_val });
                     continue 'idxs;
                 }
             }
 
-            self.cells[idx] = Unknown;
+            self.cells.to_mut()[idx] = Unknown;
         }
         debug_assert!(self.verify());
         Some(result)
@@ -114,7 +119,7 @@ impl<'a> Line<'a> {
     /// Solves the line to the extent currently possbile.
     ///
     /// Returns updates as a list of Assumption if the line wasn't controversial, None otherwise.
-    pub fn solve<'b, S: BuildHasher>(self, cache: &'b mut LineCache<S>) -> &'b Option<Vec<Assumption>> {
+    pub fn solve<'b, S: BuildHasher>(&mut self, cache: &'b mut LineCache<S>) -> &'b Option<Vec<Assumption>> {
         let cache_key = self.cache_key();
         cache.entry(cache_key).or_insert_with(move || Box::new(self.do_solve()))
     }

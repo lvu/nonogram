@@ -11,9 +11,9 @@ pub const KNOWN: [CellValue; 2] = [Filled, Empty];
 
 pub type LineHints = Vec<usize>;
 
-pub fn line_to_str(line: &Vec<CellValue>) -> String {
+pub fn line_to_str(line: &[CellValue]) -> String {
     line.iter()
-        .map(|x| match *x {
+        .map(|&x| match x {
             Unknown => '.',
             Filled => '*',
             Empty => 'X',

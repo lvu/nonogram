@@ -76,18 +76,18 @@ impl Solver {
     }
 
     fn row_line<'a>(&'a self, field: &'a Field, row_idx: usize) -> Line {
-        Line { line_type: Row, line_idx: row_idx, hints: &self.row_hints[row_idx], cells: field.row(row_idx) }
+        Line::new(Row, row_idx, &self.row_hints[row_idx], field.row(row_idx))
     }
 
     fn col_line<'a>(&'a self, field: &'a Field, col_idx: usize) -> Line {
-        Line { line_type: Col, line_idx: col_idx, hints: &self.col_hints[col_idx], cells: field.col(col_idx) }
+        Line::new(Col, col_idx, &self.col_hints[col_idx], field.col(col_idx))
     }
 
     fn do_solve_by_lines(&self, field: &Field) -> SolutionResult {
         let mut field = field.clone();
         let mut changes_made = false;
         for row_idx in 0..self.nrows() {
-            let line = self.row_line(&field, row_idx);
+            let mut line = self.row_line(&field, row_idx);
             match line.solve(self.line_cache.borrow_mut().deref_mut()) {
                 Some(changes) => {
                     for ass in changes {
@@ -104,7 +104,7 @@ impl Solver {
         loop {
             changed_rows.clear();
             for &col_idx in changed_cols.iter() {
-                let line = self.col_line(&field, col_idx);
+                let mut line = self.col_line(&field, col_idx);
                 match line.solve(self.line_cache.borrow_mut().deref_mut()) {
                     Some(changes) => {
                         for ass in changes {
@@ -125,7 +125,7 @@ impl Solver {
 
             changed_cols.clear();
             for &row_idx in changed_rows.iter() {
-                let line = self.row_line(&field, row_idx);
+                let mut line = self.row_line(&field, row_idx);
                 match line.solve(self.line_cache.borrow_mut().deref_mut()) {
                     Some(changes) => {
                         for ass in changes {

@@ -1,18 +1,16 @@
-use std::fmt::Display;
-
-use ndarray::{Array, Array2};
-
 use super::common::{line_to_str, CellValue, Unknown};
+use std::fmt::Display;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Field {
-    data: Array2<CellValue>,
+    rows: Vec<Vec<CellValue>>,
+    cols: Vec<Vec<CellValue>>,
 }
 
 impl Display for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for row in self.data.rows() {
-            writeln!(f, "{}", line_to_str(&row.to_vec()))?;
+        for row in self.rows.iter() {
+            writeln!(f, "{}", line_to_str(row))?;
         }
         Ok(())
     }
@@ -20,30 +18,37 @@ impl Display for Field {
 
 impl Field {
     pub fn new(nrows: usize, ncols: usize) -> Self {
-        Self { data: Array::from_elem((nrows, ncols), Unknown) }
+        Self {
+            rows: (0..nrows).map(|_| vec![Unknown; ncols]).collect(),
+            cols: (0..ncols).map(|_| vec![Unknown; nrows]).collect(),
+        }
     }
 
     pub fn is_solved(&self) -> bool {
-        self.data.iter().all(|&x| x != Unknown)
+        self.rows.iter().all(|row| row.iter().all(|&x| x != Unknown))
     }
 
-    pub fn row(&self, idx: usize) -> Vec<CellValue> {
-        self.data.row(idx).to_vec()
+    pub fn row(&self, idx: usize) -> &[CellValue] {
+        &self.rows[idx]
     }
 
-    pub fn col(&self, idx: usize) -> Vec<CellValue> {
-        self.data.column(idx).to_vec()
+    pub fn col(&self, idx: usize) -> &[CellValue] {
+        &self.cols[idx]
     }
 
     pub fn get(&self, coords: (usize, usize)) -> CellValue {
-        self.data[coords]
+        let (row_idx, col_idx) = coords;
+        self.rows[row_idx][col_idx]
     }
 
     pub fn set(&mut self, coords: (usize, usize), val: CellValue) {
-        self.data[coords] = val;
+        let (row_idx, col_idx) = coords;
+        self.rows[row_idx][col_idx] = val;
+        self.cols[col_idx][row_idx] = val;
     }
 
-    pub fn replace(&mut self, other: Self) {
-        other.data.move_into(&mut self.data);
+    pub fn replace(&mut self, mut other: Self) {
+        std::mem::swap(&mut self.rows, &mut other.rows);
+        std::mem::swap(&mut self.cols, &mut other.cols);
     }
 }

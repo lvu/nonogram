@@ -5,6 +5,7 @@ use field::Field;
 use itertools::Itertools;
 use line::{Line, LineCache, LineType};
 use reachability_graph::ReachabilityGraph;
+use std::borrow::{BorrowMut, Cow};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
@@ -83,15 +84,16 @@ impl Solver {
     }
 
     fn do_solve_by_lines(&self, field: &Field) -> SolutionResult {
-        let mut field = field.clone();
+        let mut field = Cow::Borrowed(field);
         let mut all_changes: Vec<Assumption> = Vec::new();
         for row_idx in 0..self.nrows() {
             let mut line = self.row_line(&field, row_idx);
             match line.solve(self.line_cache.borrow_mut().deref_mut()) {
-                Some(changes) => {
-                    apply_changes(changes, &mut field, &mut all_changes);
+                Some(changes) if !changes.is_empty() => {
+                    apply_changes(changes, field.to_mut(), &mut all_changes);
                 }
                 None => return Controversial,
+                _ => ()
             }
         }
 
@@ -102,17 +104,18 @@ impl Solver {
             for &col_idx in changed_cols.iter() {
                 let mut line = self.col_line(&field, col_idx);
                 match line.solve(self.line_cache.borrow_mut().deref_mut()) {
-                    Some(changes) => {
-                        apply_changes(changes, &mut field, &mut all_changes);
+                    Some(changes) if !changes.is_empty() => {
+                        apply_changes(changes, field.to_mut(), &mut all_changes);
                         for ass in changes {
                             changed_rows.insert(ass.coords.0);
                         }
                     }
                     None => return Controversial,
+                    _ => ()
                 }
             }
             if field.is_solved() {
-                return Solved(HashSet::from([field]));
+                return Solved(HashSet::from([field.into_owned()]));
             }
             if changed_rows.is_empty() {
                 return Unsolved(all_changes);
@@ -122,17 +125,18 @@ impl Solver {
             for &row_idx in changed_rows.iter() {
                 let mut line = self.row_line(&field, row_idx);
                 match line.solve(self.line_cache.borrow_mut().deref_mut()) {
-                    Some(changes) => {
-                        apply_changes(changes, &mut field, &mut all_changes);
+                    Some(changes) if !changes.is_empty() => {
+                        apply_changes(changes, field.to_mut(), &mut all_changes);
                         for ass in changes {
                             changed_cols.insert(ass.coords.1);
                         }
                     }
                     None => return Controversial,
+                    _ => ()
                 }
             }
             if field.is_solved() {
-                return Solved(HashSet::from([field]));
+                return Solved(HashSet::from([field.into_owned()]));
             }
             if changed_cols.is_empty() {
                 return Unsolved(all_changes);

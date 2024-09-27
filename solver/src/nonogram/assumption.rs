@@ -1,4 +1,5 @@
 use super::common::{CellValue, Unknown};
+use super::line::LineType;
 use super::reachability_graph::ReachabilityGraph;
 use super::Field;
 use itertools::Itertools;
@@ -20,6 +21,13 @@ impl Assumption {
 
     pub fn unapply(&self, field: &mut Field) {
         field.set(self.coords, Unknown);
+    }
+
+    pub fn line_idx(&self, line_type: LineType) -> usize {
+        match line_type {
+            LineType::Row => self.coords.0,
+            LineType::Col => self.coords.1,
+        }
     }
 }
 

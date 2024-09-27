@@ -14,9 +14,9 @@ pub type LineHints = Vec<usize>;
 pub fn line_to_str(line: &[CellValue]) -> String {
     line.iter()
         .map(|&x| match x {
-            Unknown => '.',
-            Filled => '*',
-            Empty => 'X',
+            Unknown => '~',
+            Filled => '#',
+            Empty => '.',
         })
         .collect()
 }

@@ -6,11 +6,10 @@ use itertools::Itertools;
 use line::{Line, LineCache, LineType};
 use reachability_graph::ReachabilityGraph;
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use std::io;
-use std::ops::DerefMut;
+use std::sync::{Arc, RwLock};
 use LineType::*;
 
 mod assumption;
@@ -41,7 +40,7 @@ pub struct Solver {
     col_hints: Vec<LineHints>,
     max_depth: Option<usize>,
     find_all: bool,
-    line_cache: RefCell<LineCache<BuildHasherDefault<AHasher>>>,
+    line_cache: LineCache<BuildHasherDefault<AHasher>>,
 }
 
 impl Solver {
@@ -60,7 +59,7 @@ impl Solver {
         max_depth: Option<usize>,
         find_all: bool,
     ) -> Self {
-        Self { row_hints, col_hints, max_depth, find_all, line_cache: RefCell::new(HashMap::default()) }
+        Self { row_hints, col_hints, max_depth, find_all, line_cache: Arc::new(RwLock::new(HashMap::default())) }
     }
 
     pub fn create_field(&self) -> Field {
@@ -83,64 +82,52 @@ impl Solver {
         Line::new(Col, col_idx, &self.col_hints[col_idx], field.col(col_idx))
     }
 
-    fn do_solve_by_lines(&self, field: &Field) -> SolutionResult {
-        let mut field = Cow::Borrowed(field);
+    fn line<'a>(&'a self, field: &'a Field, line_type: LineType, line_idx: usize) -> Line {
+        match line_type {
+            Row => self.row_line(field, line_idx),
+            Col => self.col_line(field, line_idx),
+        }
+    }
+
+    fn do_solve_by_lines_step(
+        &self, field: &mut Cow<Field>, line_type: LineType,
+        line_idxs: impl Iterator<Item = usize>,
+    ) -> Option<Vec<Assumption>> {
         let mut all_changes: Vec<Assumption> = Vec::new();
-        for row_idx in 0..self.nrows() {
-            let mut line = self.row_line(&field, row_idx);
-            match line.solve(self.line_cache.borrow_mut().deref_mut()) {
+        for line_idx in line_idxs {
+            let mut line = self.line(&field, line_type, line_idx);
+            match line.solve(&self.line_cache).as_ref() {
                 Some(changes) if !changes.is_empty() => {
                     apply_changes(changes, field.to_mut(), &mut all_changes);
                 }
-                None => return Controversial,
+                None => return None,
                 _ => ()
             }
         }
+        Some(all_changes)
+    }
 
-        let mut changed_cols: HashSet<usize> = HashSet::from_iter(0..self.ncols());
-        let mut changed_rows: HashSet<usize> = HashSet::with_capacity(self.nrows());
+    fn do_solve_by_lines(&self, field: &Field) -> SolutionResult {
+        let mut field = Cow::Borrowed(field);
+        let mut all_changes: Vec<Assumption> = Vec::new();
+        match self.do_solve_by_lines_step(&mut field, Row, 0..self.nrows()) {
+            None => return Controversial,
+            Some(changes) => all_changes.extend(changes),
+        }
+        let mut line_type = Col;
+        let mut changed_idxs: HashSet<usize> = (0..self.ncols()).collect();
         loop {
-            changed_rows.clear();
-            for &col_idx in changed_cols.iter() {
-                let mut line = self.col_line(&field, col_idx);
-                match line.solve(self.line_cache.borrow_mut().deref_mut()) {
-                    Some(changes) if !changes.is_empty() => {
-                        apply_changes(changes, field.to_mut(), &mut all_changes);
-                        for ass in changes {
-                            changed_rows.insert(ass.coords.0);
-                        }
+            match self.do_solve_by_lines_step(&mut field, line_type, changed_idxs.into_iter()) {
+                None => return Controversial,
+                Some(changes) => {
+                    if changes.is_empty() {
+                        return if field.is_solved() { Solved(HashSet::from([field.into_owned()])) } else { Unsolved(all_changes) }
                     }
-                    None => return Controversial,
-                    _ => ()
+                    changed_idxs = changes.iter().map(|ass| ass.line_idx(line_type.other())).collect();
+                    all_changes.extend(changes);
                 }
             }
-            if field.is_solved() {
-                return Solved(HashSet::from([field.into_owned()]));
-            }
-            if changed_rows.is_empty() {
-                return Unsolved(all_changes);
-            }
-
-            changed_cols.clear();
-            for &row_idx in changed_rows.iter() {
-                let mut line = self.row_line(&field, row_idx);
-                match line.solve(self.line_cache.borrow_mut().deref_mut()) {
-                    Some(changes) if !changes.is_empty() => {
-                        apply_changes(changes, field.to_mut(), &mut all_changes);
-                        for ass in changes {
-                            changed_cols.insert(ass.coords.1);
-                        }
-                    }
-                    None => return Controversial,
-                    _ => ()
-                }
-            }
-            if field.is_solved() {
-                return Solved(HashSet::from([field.into_owned()]));
-            }
-            if changed_cols.is_empty() {
-                return Unsolved(all_changes);
-            }
+            line_type = line_type.other();
         }
     }
 
@@ -171,6 +158,7 @@ impl Solver {
 
         let mut solutions = HashSet::new();
         let mut has_unsolved = false;
+        for _ in 0..2 {
         for coords in self.iter_coords() {
             if field.get(coords) != Unknown {
                 continue;
@@ -196,6 +184,7 @@ impl Solver {
                             return Controversial;
                         }
                         ass.invert().apply(&mut field);
+                        all_changes.push(ass.invert());
                         match self.do_solve_by_lines(&field) {
                             Controversial => return Controversial,
                             Unsolved(changes) => apply_changes(&changes, &mut field, &mut all_changes),
@@ -211,12 +200,18 @@ impl Solver {
                 }
             }
         }
+        }
         if !solutions.is_empty() && !(has_unsolved && self.find_all) {
             return Solved(solutions);
         }
         match self.do_solve_by_lines(&field) {
             Solved(res) => {
-                assert_eq!(solutions, res);
+                assert_eq!(
+                    solutions, res,
+                    "Other solutions:\n{}\n\n---\n\n{}",
+                    solutions.iter().map(|s| s.to_string()).join("\n\n"),
+                    res.iter().map(|s| s.to_string()).join("\n\n"),
+                );
                 Solved(res)
             }
             Unsolved(changes) => {
@@ -395,11 +390,11 @@ mod tests {
             false,
         );
         solver.do_solve_by_lines(&solver.create_field()).assert_solved(&["\
-                *****\n\
-                *XXXX\n\
-                *****\n\
-                XXXX*\n\
-                *****\n\
+                #####\n\
+                #....\n\
+                #####\n\
+                ....#\n\
+                #####\n\
         "]);
     }
 
@@ -407,10 +402,10 @@ mod tests {
     fn solve_ambiguous_recursive() {
         let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], Some(3), true);
         solver.solve().assert_solved(&[
-            "*X\n\
-             X*\n",
-            "X*\n\
-             *X\n",
+            "#.\n\
+             .#\n",
+            ".#\n\
+             #.\n",
         ]);
     }
 
@@ -418,10 +413,10 @@ mod tests {
     fn solve_ambiguous_2sat() {
         let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], Some(3), true);
         solver.solve_2sat().assert_solved(&[
-            "*X\n\
-             X*\n",
-            "X*\n\
-             *X\n",
+            "#.\n\
+             .#\n",
+            ".#\n\
+             #.\n",
         ]);
     }
 
@@ -434,14 +429,14 @@ mod tests {
             true,
         );
         solver.solve().assert_solved(&[
-            "*XX*X\n\
-             X*XX*\n",
-            "*XXX*\n\
-             X*X*X\n",
-            "X*XX*\n\
-             *XX*X\n",
-            "X*X*X\n\
-             *XXX*\n",
+            "#..#.\n\
+             .#..#\n",
+            "#...#\n\
+             .#.#.\n",
+            ".#..#\n\
+             #..#.\n",
+            ".#.#.\n\
+             #...#\n",
         ]);
     }
 
@@ -454,14 +449,14 @@ mod tests {
             true,
         );
         solver.solve_2sat().assert_solved(&[
-            "*XX*X\n\
-             X*XX*\n",
-            "*XXX*\n\
-             X*X*X\n",
-            "X*XX*\n\
-             *XX*X\n",
-            "X*X*X\n\
-             *XXX*\n",
+            "#..#.\n\
+             .#..#\n",
+            "#...#\n\
+             .#.#.\n",
+            ".#..#\n\
+             #..#.\n",
+            ".#.#.\n\
+             #...#\n",
         ]);
     }
 }

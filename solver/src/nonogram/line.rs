@@ -4,6 +4,7 @@ use crate::nonogram::common::KNOWN;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
+use std::sync::{Arc, RwLock};
 use CellValue::*;
 use LineType::*;
 
@@ -14,6 +15,15 @@ mod tests;
 pub enum LineType {
     Row,
     Col,
+}
+
+impl LineType {
+    pub fn other(&self) -> Self {
+        match *self {
+            Row => Col,
+            Col => Row,
+        }
+    }
 }
 
 pub struct Line<'a> {
@@ -119,9 +129,17 @@ impl<'a> Line<'a> {
     /// Solves the line to the extent currently possbile.
     ///
     /// Returns updates as a list of Assumption if the line wasn't controversial, None otherwise.
-    pub fn solve<'b, S: BuildHasher>(&mut self, cache: &'b mut LineCache<S>) -> &'b Option<Vec<Assumption>> {
+    pub fn solve<S>(&mut self, cache: &LineCache<S>) -> LineSolution
+    where S: BuildHasher {
         let cache_key = self.cache_key();
-        cache.entry(cache_key).or_insert_with(move || Box::new(self.do_solve()))
+        let entry = cache.read().unwrap().get(&cache_key).map(|x| x.clone());
+        match entry {
+            Some(result) => result.clone(),
+            None => {
+                let result = self.do_solve();
+                cache.write().unwrap().entry(cache_key).or_insert(Arc::new(result)).clone()
+           }
+        }
     }
 }
 
@@ -132,4 +150,5 @@ pub struct LineCacheKey {
     cells: Vec<u8>,
 }
 
-pub type LineCache<S> = HashMap<LineCacheKey, Box<Option<Vec<Assumption>>>, S>;
+pub type LineCache<S> = Arc<RwLock<HashMap<LineCacheKey, Arc<Option<Vec<Assumption>>>, S>>>;
+pub type LineSolution = Arc<Option<Vec<Assumption>>>;

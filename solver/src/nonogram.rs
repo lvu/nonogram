@@ -29,6 +29,8 @@ pub enum SolutionResult {
 
 pub use SolutionResult::*;
 
+type ABuildHasher = BuildHasherDefault<AHasher>;
+
 #[derive(serde::Deserialize)]
 struct NonoDescription {
     row_hints: Vec<LineHints>,
@@ -38,9 +40,10 @@ struct NonoDescription {
 pub struct Solver {
     row_hints: Vec<LineHints>,
     col_hints: Vec<LineHints>,
+    row_cache: Vec<LineCache<ABuildHasher>>,
+    col_cache: Vec<LineCache<ABuildHasher>>,
     max_depth: Option<usize>,
     find_all: bool,
-    line_cache: LineCache<BuildHasherDefault<AHasher>>,
 }
 
 impl Solver {
@@ -59,7 +62,9 @@ impl Solver {
         max_depth: Option<usize>,
         find_all: bool,
     ) -> Self {
-        Self { row_hints, col_hints, max_depth, find_all, line_cache: Arc::new(RwLock::new(HashMap::default())) }
+        let row_cache = (0..row_hints.len()).map(|_| Arc::new(RwLock::new(HashMap::default()))).collect();
+        let col_cache = (0..col_hints.len()).map(|_| Arc::new(RwLock::new(HashMap::default()))).collect();
+        Self { row_hints, col_hints, row_cache, col_cache, max_depth, find_all }
     }
 
     pub fn create_field(&self) -> Field {
@@ -89,6 +94,13 @@ impl Solver {
         }
     }
 
+    fn cache(&self, line_type: LineType, line_idx: usize) -> LineCache<ABuildHasher> {
+        match line_type {
+            Row => self.row_cache[line_idx].clone(),
+            Col => self.col_cache[line_idx].clone(),
+        }
+    }
+
     fn do_solve_by_lines_step(
         &self, field: &mut Cow<Field>, line_type: LineType,
         line_idxs: impl Iterator<Item = usize>,
@@ -96,7 +108,7 @@ impl Solver {
         let mut all_changes: Vec<Assumption> = Vec::new();
         for line_idx in line_idxs {
             let mut line = self.line(&field, line_type, line_idx);
-            match line.solve(&self.line_cache).as_ref() {
+            match line.solve(self.cache(line_type, line_idx)).as_ref() {
                 Some(changes) if !changes.is_empty() => {
                     apply_changes(changes, field.to_mut(), &mut all_changes);
                 }

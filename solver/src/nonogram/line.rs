@@ -27,10 +27,10 @@ impl LineType {
 }
 
 pub struct Line<'a> {
-    pub line_type: LineType,
-    pub line_idx: usize,
-    pub hints: &'a LineHints,
-    pub cells: Cow<'a, [CellValue]>,
+    line_type: LineType,
+    line_idx: usize,
+    hints: &'a LineHints,
+    cells: Cow<'a, [CellValue]>,
 }
 
 impl<'a> Line<'a> {
@@ -90,7 +90,7 @@ impl<'a> Line<'a> {
             packed_cells[idx] = c;
             idx += 1;
         }
-        LineCacheKey { line_type: self.line_type, line_idx: self.line_idx, cells: packed_cells }
+        packed_cells
     }
 
     fn get_coords(&self, idx: usize) -> (usize, usize) {
@@ -129,7 +129,7 @@ impl<'a> Line<'a> {
     /// Solves the line to the extent currently possbile.
     ///
     /// Returns updates as a list of Assumption if the line wasn't controversial, None otherwise.
-    pub fn solve<S>(&mut self, cache: &LineCache<S>) -> LineSolution
+    pub fn solve<S>(&mut self, cache: LineCache<S>) -> LineSolution
     where S: BuildHasher {
         let cache_key = self.cache_key();
         let entry = cache.read().unwrap().get(&cache_key).map(|x| x.clone());
@@ -143,12 +143,7 @@ impl<'a> Line<'a> {
     }
 }
 
-#[derive(Hash, Eq, PartialEq)]
-pub struct LineCacheKey {
-    line_type: LineType,
-    line_idx: usize,
-    cells: Vec<u8>,
-}
+type LineCacheKey = Vec<u8>;
 
 pub type LineCache<S> = Arc<RwLock<HashMap<LineCacheKey, Arc<Option<Vec<Assumption>>>, S>>>;
 pub type LineSolution = Arc<Option<Vec<Assumption>>>;

@@ -50,7 +50,7 @@ pub struct Solver {
     col_hints: Vec<LineHints>,
     row_cache: Vec<LineCache<ABuildHasher>>,
     col_cache: Vec<LineCache<ABuildHasher>>,
-    max_depth: Option<usize>,
+    max_depth: usize,
     find_all: bool,
     algorithm: Algorithm,
 }
@@ -58,7 +58,7 @@ pub struct Solver {
 impl Solver {
     pub fn from_reader<R: io::Read>(
         rdr: R,
-        max_depth: Option<usize>,
+        max_depth: usize,
         find_all: bool,
         algorithm: Algorithm,
     ) -> Result<Self, serde_json::Error> {
@@ -75,7 +75,7 @@ impl Solver {
     fn from_hints(
         row_hints: Vec<LineHints>,
         col_hints: Vec<LineHints>,
-        max_depth: Option<usize>,
+        max_depth: usize,
         find_all: bool,
         algorithm: Algorithm,
     ) -> Self {
@@ -179,25 +179,16 @@ impl Solver {
             .flat_map(|coords| KNOWN.iter().map(move |&val| Assumption { coords, val }))
     }
 
-    fn max_depth_reached(&self, depth: usize) -> bool {
-        self.max_depth.map(|d| depth > d).unwrap_or(false)
-    }
-
-    fn do_step<F>(&self, field: &Field, depth: usize, recurse: F) -> SolutionResult
-    where
-        F: Fn(&Field, usize) -> SolutionResult,
+    fn do_step(&self, field: &Field, depth: usize) -> SolutionResult
     {
         match self.algorithm {
-            Algorithm::Naive => self.do_naive_step(field, depth, recurse),
-            Algorithm::TwoSat => self.do_2sat_step(field, depth, recurse),
+            Algorithm::Naive => self.do_naive_step(field, depth),
+            Algorithm::TwoSat => self.do_2sat_step(field, depth),
             Algorithm::ByLines => panic!("ByLines shouldn't get here"),
         }
     }
 
-    fn do_naive_step<F>(&self, field: &Field, depth: usize, recurse: F) -> SolutionResult
-    where
-        F: Fn(&Field, usize) -> SolutionResult,
-    {
+    fn do_naive_step(&self, field: &Field, max_depth: usize) -> SolutionResult {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
         let mut solutions = HashSet::new();
@@ -210,7 +201,7 @@ impl Solver {
             for val in KNOWN {
                 let ass = Assumption { coords, val };
                 ass.apply(&mut field);
-                match recurse(&field, depth + 1) {
+                match self.do_solve(&field, max_depth) {
                     Solved(res) => {
                         solutions.extend(res);
                         if !self.find_all {
@@ -272,11 +263,10 @@ impl Solver {
         }
     }
 
-    fn do_2sat_step<F: Fn(&Field, usize) -> SolutionResult>(
+    fn do_2sat_step(
         &self,
         field: &Field,
-        depth: usize,
-        recurse: F,
+        max_depth: usize,
     ) -> SolutionResult {
         let mut field = field.clone();
         let mut reach = ReachabilityGraph::new();
@@ -295,7 +285,7 @@ impl Solver {
                     continue;
                 }
                 ass2.apply(&mut field);
-                match recurse(&field, depth + 1) {
+                match self.do_solve(&field, max_depth) {
                     Unsolved(_) => has_unsolved = true,
                     Solved(res) => {
                         solutions.extend(res);
@@ -320,61 +310,42 @@ impl Solver {
         self.apply_impossible_matches(&field, &reach)
     }
 
-    fn do_solve(&self, field: &Field, depth: usize) -> SolutionResult {
+    fn do_solve(&self, field: &Field, max_depth: usize) -> SolutionResult {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
         let by_lines = self.do_solve_by_lines(&field);
         match by_lines {
             Controversial | Solved(_) => return by_lines,
             Unsolved(changes) => {
-                if self.max_depth_reached(depth) {
+                if max_depth == 0 {
                     return Unsolved(changes);
                 }
                 apply_changes(&changes, &mut field, &mut all_changes);
             }
         }
-        if depth == 0 {
-            println!("{}\n", field.to_string());
-        }
 
-        loop {
-            let by_step = self.do_step(&field, depth, |fld, _| self.do_solve_by_lines(fld));
-            match by_step {
-                Solved(_) | Controversial => return by_step,
-                Unsolved(changes) => {
-                    if changes.is_empty() {
-                        break;
+        'outer: loop {
+            for depth in 0..max_depth {
+                let by_step = self.do_step(&field, depth);
+                match by_step {
+                    Solved(_) | Controversial => return by_step,
+                    Unsolved(changes) => {
+                        if !changes.is_empty() {
+                            apply_changes(&changes, &mut field, &mut all_changes);
+                            continue 'outer;
+                        }
                     }
-                    apply_changes(&changes, &mut field, &mut all_changes);
                 }
             }
-            if depth == 0 {
-                println!("{}\n", field.to_string());
-            }
+            return Unsolved(all_changes)
         }
-        loop {
-            let by_step = self.do_step(&field, depth, |fld, d| self.do_solve(fld, d + 1));
-            match by_step {
-                Solved(_) | Controversial => return by_step,
-                Unsolved(changes) => {
-                    if changes.is_empty() {
-                        break;
-                    }
-                    apply_changes(&changes, &mut field, &mut all_changes);
-                }
-            }
-            if depth == 0 {
-                println!("{}\n", field.to_string());
-            }
-        }
-        Unsolved(all_changes)
     }
 
     pub fn solve(&self) -> SolutionResult {
         let field = self.create_field();
         match self.algorithm {
             Algorithm::ByLines => self.do_solve_by_lines(&field),
-            _ => self.do_solve(&field, 0),
+            _ => self.do_solve(&field, self.max_depth),
         }
     }
 }
@@ -408,7 +379,7 @@ mod tests {
         let solver = Solver::from_hints(
             vec![vec![5], vec![1], vec![5], vec![1], vec![5]],
             vec![vec![3, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 3]],
-            None,
+            0,
             false,
             Algorithm::ByLines,
         );
@@ -425,7 +396,7 @@ mod tests {
     #[case(Algorithm::TwoSat)]
     #[case(Algorithm::Naive)]
     fn solve_ambiguous(#[case] algorithm: Algorithm) {
-        let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], Some(3), true, algorithm);
+        let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], 3, true, algorithm);
         solver.solve().assert_solved(&[
             "#.\n\
              .#\n",
@@ -442,7 +413,7 @@ mod tests {
         let solver = Solver::from_hints(
             vec![vec![1, 1], vec![1, 1]],
             vec![vec![1], vec![1], vec![], vec![1], vec![1]],
-            Some(2),
+            2,
             true,
             algorithm
         );

@@ -19,16 +19,15 @@ struct Cli {
 
 fn main() {
     let cli = Cli::parse();
-    let max_depth = if cli.max_depth > 0 { Some(cli.max_depth) } else { None };
     let solver = match cli.fname {
         Some(fname) => Solver::from_reader(
             std::fs::File::open(fname).unwrap(),
-            max_depth,
+            cli.max_depth,
             cli.find_all,
             cli.algorithm,
         )
         .unwrap(),
-        None => Solver::from_reader(io::stdin(), max_depth, cli.find_all, cli.algorithm).expect("Malformed input"),
+        None => Solver::from_reader(io::stdin(), cli.max_depth, cli.find_all, cli.algorithm).expect("Malformed input"),
     };
     let start = Instant::now();
     match solver.solve() {

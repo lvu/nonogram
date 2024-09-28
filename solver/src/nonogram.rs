@@ -386,6 +386,8 @@ fn apply_changes(changes: &[Assumption], field: &mut Field, all_changes: &mut Ve
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     impl SolutionResult {
@@ -408,8 +410,9 @@ mod tests {
             vec![vec![3, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 3]],
             None,
             false,
+            Algorithm::ByLines,
         );
-        solver.do_solve_by_lines(&solver.create_field()).assert_solved(&["\
+        solver.solve().assert_solved(&["\
                 #####\n\
                 #....\n\
                 #####\n\
@@ -418,9 +421,11 @@ mod tests {
         "]);
     }
 
-    #[test]
-    fn solve_ambiguous_recursive() {
-        let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], Some(3), true);
+    #[rstest]
+    #[case(Algorithm::TwoSat)]
+    #[case(Algorithm::Naive)]
+    fn solve_ambiguous(#[case] algorithm: Algorithm) {
+        let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], Some(3), true, algorithm);
         solver.solve().assert_solved(&[
             "#.\n\
              .#\n",
@@ -429,46 +434,19 @@ mod tests {
         ]);
     }
 
-    #[test]
-    fn solve_ambiguous_2sat() {
-        let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], Some(3), true);
-        solver.solve_2sat().assert_solved(&[
-            "#.\n\
-             .#\n",
-            ".#\n\
-             #.\n",
-        ]);
-    }
 
-    #[test]
-    fn solve_double_ambiguous_recursive() {
+    #[rstest]
+    #[case(Algorithm::TwoSat)]
+    #[case(Algorithm::Naive)]
+    fn solve_double_ambiguous_naive(#[case] algorithm: Algorithm) {
         let solver = Solver::from_hints(
             vec![vec![1, 1], vec![1, 1]],
             vec![vec![1], vec![1], vec![], vec![1], vec![1]],
             Some(2),
             true,
+            algorithm
         );
         solver.solve().assert_solved(&[
-            "#..#.\n\
-             .#..#\n",
-            "#...#\n\
-             .#.#.\n",
-            ".#..#\n\
-             #..#.\n",
-            ".#.#.\n\
-             #...#\n",
-        ]);
-    }
-
-    #[test]
-    fn solve_double_ambiguous_2sat() {
-        let solver = Solver::from_hints(
-            vec![vec![1, 1], vec![1, 1]],
-            vec![vec![1], vec![1], vec![], vec![1], vec![1]],
-            Some(2),
-            true,
-        );
-        solver.solve_2sat().assert_solved(&[
             "#..#.\n\
              .#..#\n",
             "#...#\n\

@@ -1,5 +1,6 @@
 use ahash::AHasher;
 use assumption::Assumption;
+use clap::ValueEnum;
 use common::{LineHints, Unknown, KNOWN};
 use field::Field;
 use itertools::Itertools;
@@ -27,6 +28,13 @@ pub enum SolutionResult {
     Solved(MultiSolution),
 }
 
+#[derive(ValueEnum, Debug, Clone)]
+pub enum Algorithm {
+    ByLines,
+    Naive,
+    TwoSat,
+}
+
 pub use SolutionResult::*;
 
 type ABuildHasher = BuildHasherDefault<AHasher>;
@@ -44,6 +52,7 @@ pub struct Solver {
     col_cache: Vec<LineCache<ABuildHasher>>,
     max_depth: Option<usize>,
     find_all: bool,
+    algorithm: Algorithm,
 }
 
 impl Solver {
@@ -51,9 +60,10 @@ impl Solver {
         rdr: R,
         max_depth: Option<usize>,
         find_all: bool,
+        algorithm: Algorithm,
     ) -> Result<Self, serde_json::Error> {
         let descr: NonoDescription = serde_json::from_reader(rdr)?;
-        Ok(Self::from_hints(descr.row_hints, descr.col_hints, max_depth, find_all))
+        Ok(Self::from_hints(descr.row_hints, descr.col_hints, max_depth, find_all, algorithm))
     }
 
     fn from_hints(
@@ -61,10 +71,11 @@ impl Solver {
         col_hints: Vec<LineHints>,
         max_depth: Option<usize>,
         find_all: bool,
+        algorithm: Algorithm,
     ) -> Self {
         let row_cache = (0..row_hints.len()).map(|_| Arc::new(RwLock::new(HashMap::default()))).collect();
         let col_cache = (0..col_hints.len()).map(|_| Arc::new(RwLock::new(HashMap::default()))).collect();
-        Self { row_hints, col_hints, row_cache, col_cache, max_depth, find_all }
+        Self { row_hints, col_hints, row_cache, col_cache, max_depth, find_all, algorithm }
     }
 
     pub fn create_field(&self) -> Field {
@@ -156,21 +167,32 @@ impl Solver {
         self.max_depth.map(|d| depth > d).unwrap_or(false)
     }
 
-    fn do_solve(&self, field: &Field, depth: usize) -> SolutionResult {
-        if self.max_depth_reached(depth) {
-            return Unsolved(Vec::new());
+    fn do_step<F>(
+        &self,
+        field: &Field,
+        depth: usize,
+        recurse: F,
+    ) -> SolutionResult
+    where F: Fn(&Field, usize) -> SolutionResult {
+        match self.algorithm {
+            Algorithm::Naive => self.do_naive_step(field, depth, recurse),
+            Algorithm::TwoSat => self.do_2sat_step(field, depth, recurse),
+            Algorithm::ByLines => panic!("ByLines shouldn't get here"),
         }
+    }
+
+    fn do_naive_step<F>(
+        &self,
+        field: &Field,
+        depth: usize,
+        recurse: F,
+    ) -> SolutionResult
+    where F: Fn(&Field, usize) -> SolutionResult
+    {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
-        let by_lines = self.do_solve_by_lines(&field);
-        match by_lines {
-            Controversial | Solved(_) => return by_lines,
-            Unsolved(changes) => apply_changes(&changes, &mut field, &mut all_changes),
-        };
-
         let mut solutions = HashSet::new();
         let mut has_unsolved = false;
-        for _ in 0..2 {
         for coords in self.iter_coords() {
             if field.get(coords) != Unknown {
                 continue;
@@ -179,7 +201,7 @@ impl Solver {
             for val in KNOWN {
                 let ass = Assumption { coords, val };
                 ass.apply(&mut field);
-                match self.do_solve(&field, depth + 1) {
+                match recurse(&field, depth + 1) {
                     Solved(res) => {
                         solutions.extend(res);
                         if !self.find_all {
@@ -197,40 +219,21 @@ impl Solver {
                         }
                         ass.invert().apply(&mut field);
                         all_changes.push(ass.invert());
-                        match self.do_solve_by_lines(&field) {
-                            Controversial => return Controversial,
-                            Unsolved(changes) => apply_changes(&changes, &mut field, &mut all_changes),
-                            Solved(res) => {
-                                solutions.extend(res);
-                                if !self.find_all {
-                                    return Solved(solutions);
-                                }
-                            }
-                        }
                         has_controversy = true;
                     }
                 }
             }
         }
-        }
         if !solutions.is_empty() && !(has_unsolved && self.find_all) {
             return Solved(solutions);
         }
-        match self.do_solve_by_lines(&field) {
-            Solved(res) => {
-                assert_eq!(
-                    solutions, res,
-                    "Other solutions:\n{}\n\n---\n\n{}",
-                    solutions.iter().map(|s| s.to_string()).join("\n\n"),
-                    res.iter().map(|s| s.to_string()).join("\n\n"),
-                );
-                Solved(res)
-            }
+        let by_lines = self.do_solve_by_lines(&field);
+        match by_lines {
             Unsolved(changes) => {
-                all_changes.extend(changes);
+                all_changes.extend_from_slice(&changes);
                 Unsolved(all_changes)
             }
-            Controversial => Controversial,
+            _ => by_lines,
         }
     }
 
@@ -301,14 +304,14 @@ impl Solver {
             ass1.unapply(&mut field);
         }
 
-        if solutions.len() > 0 && !has_unsolved {
+        if solutions.len() > 0 && !(has_unsolved && self.find_all) {
             return Solved(solutions);
         }
 
         self.apply_impossible_matches(&field, &reach)
     }
 
-    fn do_solve_2sat(&self, field: &Field, depth: usize) -> SolutionResult {
+    fn do_solve(&self, field: &Field, depth: usize) -> SolutionResult {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
         let by_lines = self.do_solve_by_lines(&field);
@@ -326,7 +329,7 @@ impl Solver {
         }
 
         loop {
-            let by_step = self.do_2sat_step(&field, depth, |fld, _| self.do_solve_by_lines(fld));
+            let by_step = self.do_step(&field, depth, |fld, _| self.do_solve_by_lines(fld));
             match by_step {
                 Solved(_) | Controversial => return by_step,
                 Unsolved(changes) => {
@@ -341,7 +344,7 @@ impl Solver {
             }
         }
         loop {
-            let by_step = self.do_2sat_step(&field, depth, |fld, d| self.do_solve_2sat(fld, d + 1));
+            let by_step = self.do_step(&field, depth, |fld, d| self.do_solve(fld, d + 1));
             match by_step {
                 Solved(_) | Controversial => return by_step,
                 Unsolved(changes) => {
@@ -358,16 +361,12 @@ impl Solver {
         Unsolved(all_changes)
     }
 
-    pub fn solve_by_lines(&self) -> SolutionResult {
-        self.do_solve_by_lines(&self.create_field())
-    }
-
     pub fn solve(&self) -> SolutionResult {
-        self.do_solve(&self.create_field(), 0)
-    }
-
-    pub fn solve_2sat(&self) -> SolutionResult {
-        self.do_solve_2sat(&self.create_field(), 0)
+        let field = self.create_field();
+        match self.algorithm {
+            Algorithm::ByLines => self.do_solve_by_lines(&field),
+            _ => self.do_solve(&field, 0),
+        }
     }
 }
 

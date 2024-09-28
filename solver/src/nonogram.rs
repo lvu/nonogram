@@ -225,15 +225,9 @@ impl Solver {
             }
         }
         if !solutions.is_empty() && !(has_unsolved && self.find_all) {
-            return Solved(solutions);
-        }
-        let by_lines = self.do_solve_by_lines(&field);
-        match by_lines {
-            Unsolved(changes) => {
-                all_changes.extend_from_slice(&changes);
-                Unsolved(all_changes)
-            }
-            _ => by_lines,
+            Solved(solutions)
+        } else {
+            Unsolved(all_changes)
         }
     }
 
@@ -250,17 +244,7 @@ impl Solver {
                 return Controversial;
             }
         }
-        if all_changes.is_empty() {
-            return Unsolved(all_changes);
-        }
-        let by_lines = self.do_solve_by_lines(&field);
-        match by_lines {
-            Unsolved(changes) => {
-                all_changes.extend_from_slice(&changes);
-                Unsolved(all_changes)
-            }
-            _ => by_lines,
-        }
+        Unsolved(all_changes)
     }
 
     fn do_2sat_step(
@@ -313,18 +297,19 @@ impl Solver {
     fn do_solve(&self, field: &Field, max_depth: usize) -> SolutionResult {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
-        let by_lines = self.do_solve_by_lines(&field);
-        match by_lines {
-            Controversial | Solved(_) => return by_lines,
-            Unsolved(changes) => {
-                if max_depth == 0 {
-                    return Unsolved(changes);
-                }
-                apply_changes(&changes, &mut field, &mut all_changes);
-            }
-        }
 
         'outer: loop {
+            let by_lines = self.do_solve_by_lines(&field);
+            match by_lines {
+                Controversial | Solved(_) => return by_lines,
+                Unsolved(changes) => {
+                    if max_depth == 0 {
+                        return Unsolved(changes);
+                    }
+                    apply_changes(&changes, &mut field, &mut all_changes);
+                }
+            }
+
             for depth in 0..max_depth {
                 let by_step = self.do_step(&field, depth);
                 match by_step {

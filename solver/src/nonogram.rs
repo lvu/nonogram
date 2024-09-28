@@ -63,7 +63,13 @@ impl Solver {
         algorithm: Algorithm,
     ) -> Result<Self, serde_json::Error> {
         let descr: NonoDescription = serde_json::from_reader(rdr)?;
-        Ok(Self::from_hints(descr.row_hints, descr.col_hints, max_depth, find_all, algorithm))
+        Ok(Self::from_hints(
+            descr.row_hints,
+            descr.col_hints,
+            max_depth,
+            find_all,
+            algorithm,
+        ))
     }
 
     fn from_hints(
@@ -73,8 +79,12 @@ impl Solver {
         find_all: bool,
         algorithm: Algorithm,
     ) -> Self {
-        let row_cache = (0..row_hints.len()).map(|_| Arc::new(RwLock::new(HashMap::default()))).collect();
-        let col_cache = (0..col_hints.len()).map(|_| Arc::new(RwLock::new(HashMap::default()))).collect();
+        let row_cache = (0..row_hints.len())
+            .map(|_| Arc::new(RwLock::new(HashMap::default())))
+            .collect();
+        let col_cache = (0..col_hints.len())
+            .map(|_| Arc::new(RwLock::new(HashMap::default())))
+            .collect();
         Self { row_hints, col_hints, row_cache, col_cache, max_depth, find_all, algorithm }
     }
 
@@ -113,7 +123,9 @@ impl Solver {
     }
 
     fn do_solve_by_lines_step(
-        &self, field: &mut Cow<Field>, line_type: LineType,
+        &self,
+        field: &mut Cow<Field>,
+        line_type: LineType,
         line_idxs: impl Iterator<Item = usize>,
     ) -> Option<Vec<Assumption>> {
         let mut all_changes: Vec<Assumption> = Vec::new();
@@ -124,7 +136,7 @@ impl Solver {
                     apply_changes(changes, field.to_mut(), &mut all_changes);
                 }
                 None => return None,
-                _ => ()
+                _ => (),
             }
         }
         Some(all_changes)
@@ -144,7 +156,11 @@ impl Solver {
                 None => return Controversial,
                 Some(changes) => {
                     if changes.is_empty() {
-                        return if field.is_solved() { Solved(HashSet::from([field.into_owned()])) } else { Unsolved(all_changes) }
+                        return if field.is_solved() {
+                            Solved(HashSet::from([field.into_owned()]))
+                        } else {
+                            Unsolved(all_changes)
+                        };
                     }
                     changed_idxs = changes.iter().map(|ass| ass.line_idx(line_type.other())).collect();
                     all_changes.extend(changes);
@@ -167,13 +183,10 @@ impl Solver {
         self.max_depth.map(|d| depth > d).unwrap_or(false)
     }
 
-    fn do_step<F>(
-        &self,
-        field: &Field,
-        depth: usize,
-        recurse: F,
-    ) -> SolutionResult
-    where F: Fn(&Field, usize) -> SolutionResult {
+    fn do_step<F>(&self, field: &Field, depth: usize, recurse: F) -> SolutionResult
+    where
+        F: Fn(&Field, usize) -> SolutionResult,
+    {
         match self.algorithm {
             Algorithm::Naive => self.do_naive_step(field, depth, recurse),
             Algorithm::TwoSat => self.do_2sat_step(field, depth, recurse),
@@ -181,13 +194,9 @@ impl Solver {
         }
     }
 
-    fn do_naive_step<F>(
-        &self,
-        field: &Field,
-        depth: usize,
-        recurse: F,
-    ) -> SolutionResult
-    where F: Fn(&Field, usize) -> SolutionResult
+    fn do_naive_step<F>(&self, field: &Field, depth: usize, recurse: F) -> SolutionResult
+    where
+        F: Fn(&Field, usize) -> SolutionResult,
     {
         let mut field = field.clone();
         let mut all_changes = Vec::new();

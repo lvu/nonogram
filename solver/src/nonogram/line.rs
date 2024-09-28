@@ -85,7 +85,7 @@ impl<'a> Line<'a> {
                 [b1, b2, b3] => ((*b1 as u8) << 4) | ((*b2 as u8) << 2) | (*b3 as u8),
                 [b1, b2] => ((*b1 as u8) << 2) | (*b2 as u8),
                 [b1] => *b1 as u8,
-                _ => panic!("Impossible chunk: {chunk:?}")
+                _ => panic!("Impossible chunk: {chunk:?}"),
             };
             packed_cells[idx] = c;
             idx += 1;
@@ -130,15 +130,22 @@ impl<'a> Line<'a> {
     ///
     /// Returns updates as a list of Assumption if the line wasn't controversial, None otherwise.
     pub fn solve<S>(&mut self, cache: LineCache<S>) -> LineSolution
-    where S: BuildHasher {
+    where
+        S: BuildHasher,
+    {
         let cache_key = self.cache_key();
         let entry = cache.read().unwrap().get(&cache_key).map(|x| x.clone());
         match entry {
             Some(result) => result.clone(),
             None => {
                 let result = self.do_solve();
-                cache.write().unwrap().entry(cache_key).or_insert(Arc::new(result)).clone()
-           }
+                cache
+                    .write()
+                    .unwrap()
+                    .entry(cache_key)
+                    .or_insert(Arc::new(result))
+                    .clone()
+            }
         }
     }
 }

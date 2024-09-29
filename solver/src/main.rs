@@ -1,5 +1,5 @@
 use clap::Parser;
-use nonogram::{Algorithm, SolutionResult, Solver};
+use nonogram::{SolutionResult, Solver};
 use std::io;
 use std::time::Instant;
 use SolutionResult::*;
@@ -9,8 +9,6 @@ mod nonogram;
 #[derive(Parser, Debug)]
 struct Cli {
     fname: Option<String>,
-    #[arg(value_enum, short, long, default_value_t = Algorithm::TwoSat)]
-    algorithm: Algorithm,
     #[arg(short, long, default_value_t = 3, help("Max recusrion depth, 0 for no limit"))]
     max_depth: usize,
     #[arg(short, long)]
@@ -24,10 +22,9 @@ fn main() {
             std::fs::File::open(fname).unwrap(),
             cli.max_depth,
             cli.find_all,
-            cli.algorithm,
         )
         .unwrap(),
-        None => Solver::from_reader(io::stdin(), cli.max_depth, cli.find_all, cli.algorithm).expect("Malformed input"),
+        None => Solver::from_reader(io::stdin(), cli.max_depth, cli.find_all).expect("Malformed input"),
     };
     let start = Instant::now();
     match solver.solve() {

@@ -96,8 +96,8 @@ fn verify_split_with_fine_left() {
 #[test]
 fn solve_simple_overlap_and_unreachable() {
     let ol = OwnedLine::create(vec![4], "~~~~~#~~").unwrap();
-    let cache = Arc::new(RwLock::new(HashMap::new()));
-    let result = ol.line().solve(cache).clone();
+    let cache = RefCell::new(HashMap::new());
+    let result = ol.line().solve(&cache).clone();
     let changes: HashSet<&Assumption> = result.iter().flat_map(|x| x.iter()).collect();
     assert_eq!(
         changes,
@@ -112,8 +112,8 @@ fn solve_simple_overlap_and_unreachable() {
 #[test]
 fn solve_fill_with_ambiguity() {
     let ol = OwnedLine::create(vec![1, 2], "~~~#.~~").unwrap();
-    let cache = Arc::new(RwLock::new(HashMap::new()));
-    let result = ol.line().solve(cache).clone();
+    let cache = RefCell::new(HashMap::new());
+    let result = ol.line().solve(&cache).clone();
     let changes: HashSet<&Assumption> = result.iter().flat_map(|x| x.iter()).collect();
     assert_eq!(changes, HashSet::from([&Assumption { coords: (0, 1), val: Empty },]));
 }
@@ -121,8 +121,8 @@ fn solve_fill_with_ambiguity() {
 #[test]
 fn solve_empties_with_definite_chunks() {
     let ol = OwnedLine::create(vec![2, 1], "~~~.~#~.#").unwrap();
-    let cache = Arc::new(RwLock::new(HashMap::new()));
-    let result = ol.line().solve(cache).clone();
+    let cache = RefCell::new(HashMap::new());
+    let result = ol.line().solve(&cache).clone();
     let changes: HashSet<&Assumption> = result.iter().flat_map(|x| x.iter()).collect();
     assert_eq!(
         changes,

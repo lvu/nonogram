@@ -1,23 +1,20 @@
 use ahash::AHasher;
 use assumption::Assumption;
-use clap::ValueEnum;
 use common::{LineHints, Unknown, KNOWN};
 use field::Field;
 use itertools::Itertools;
 use line::{Line, LineCache, LineType};
-use reachability_graph::ReachabilityGraph;
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 use std::io;
-use std::sync::{Arc, RwLock};
 use LineType::*;
 
 mod assumption;
 mod common;
 mod field;
 mod line;
-mod reachability_graph;
 
 type MultiSolution = HashMap<Vec<u8>, Field>;
 
@@ -26,13 +23,6 @@ pub enum SolutionResult {
     Controversial,
     Unsolved(Vec<Assumption>),
     Solved(MultiSolution),
-}
-
-#[derive(ValueEnum, Debug, Clone)]
-pub enum Algorithm {
-    ByLines,
-    Naive,
-    TwoSat,
 }
 
 pub use SolutionResult::*;
@@ -52,7 +42,6 @@ pub struct Solver {
     col_cache: Vec<LineCache<ABuildHasher>>,
     max_depth: usize,
     find_all: bool,
-    algorithm: Algorithm,
 }
 
 impl Solver {
@@ -60,7 +49,6 @@ impl Solver {
         rdr: R,
         max_depth: usize,
         find_all: bool,
-        algorithm: Algorithm,
     ) -> Result<Self, serde_json::Error> {
         let descr: NonoDescription = serde_json::from_reader(rdr)?;
         Ok(Self::from_hints(
@@ -68,7 +56,6 @@ impl Solver {
             descr.col_hints,
             max_depth,
             find_all,
-            algorithm,
         ))
     }
 
@@ -77,15 +64,14 @@ impl Solver {
         col_hints: Vec<LineHints>,
         max_depth: usize,
         find_all: bool,
-        algorithm: Algorithm,
     ) -> Self {
         let row_cache = (0..row_hints.len())
-            .map(|_| Arc::new(RwLock::new(HashMap::default())))
+            .map(|_| RefCell::new(HashMap::default()))
             .collect();
         let col_cache = (0..col_hints.len())
-            .map(|_| Arc::new(RwLock::new(HashMap::default())))
+            .map(|_| RefCell::new(HashMap::default()))
             .collect();
-        Self { row_hints, col_hints, row_cache, col_cache, max_depth, find_all, algorithm }
+        Self { row_hints, col_hints, row_cache, col_cache, max_depth, find_all }
     }
 
     pub fn create_field(&self) -> Field {
@@ -115,10 +101,10 @@ impl Solver {
         }
     }
 
-    fn cache(&self, line_type: LineType, line_idx: usize) -> LineCache<ABuildHasher> {
+    fn cache(&self, line_type: LineType, line_idx: usize) -> &LineCache<ABuildHasher> {
         match line_type {
-            Row => self.row_cache[line_idx].clone(),
-            Col => self.col_cache[line_idx].clone(),
+            Row => &self.row_cache[line_idx],
+            Col => &self.col_cache[line_idx],
         }
     }
 
@@ -174,21 +160,7 @@ impl Solver {
         (0..self.nrows()).cartesian_product(0..self.ncols())
     }
 
-    fn iter_assumptions(&self) -> impl Iterator<Item = Assumption> {
-        self.iter_coords()
-            .flat_map(|coords| KNOWN.iter().map(move |&val| Assumption { coords, val }))
-    }
-
-    fn do_step(&self, field: &Field, depth: usize) -> SolutionResult
-    {
-        match self.algorithm {
-            Algorithm::Naive => self.do_naive_step(field, depth),
-            Algorithm::TwoSat => self.do_2sat_step(field, depth),
-            Algorithm::ByLines => panic!("ByLines shouldn't get here"),
-        }
-    }
-
-    fn do_naive_step(&self, field: &Field, max_depth: usize) -> SolutionResult {
+    fn do_step(&self, field: &Field, max_depth: usize) -> SolutionResult {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
         let mut solutions = HashMap::new();
@@ -231,69 +203,6 @@ impl Solver {
         }
     }
 
-    fn apply_impossible_matches(&self, field: &Field, reach: &ReachabilityGraph<Assumption>) -> SolutionResult {
-        let mut field = field.clone();
-        let mut all_changes = Vec::new();
-        for ass in reach.get_impossible() {
-            let old_val = field.get(ass.coords);
-            if old_val == Unknown {
-                let ass_inv = ass.invert();
-                ass_inv.apply(&mut field);
-                all_changes.push(ass_inv);
-            } else if old_val == ass.val {
-                return Controversial;
-            }
-        }
-        Unsolved(all_changes)
-    }
-
-    fn do_2sat_step(
-        &self,
-        field: &Field,
-        max_depth: usize,
-    ) -> SolutionResult {
-        let mut field = field.clone();
-        let mut reach = ReachabilityGraph::new();
-        let mut solutions = HashMap::new();
-        let mut has_unsolved = false;
-        for ass1 in self.iter_assumptions() {
-            if field.get(ass1.coords) != Unknown {
-                continue;
-            }
-            ass1.apply(&mut field);
-            for ass2 in self.iter_assumptions() {
-                if ass1.coords <= ass2.coords
-                    || field.get(ass2.coords) != Unknown
-                    || reach.is_reachable(&ass1, &ass2.invert())
-                {
-                    continue;
-                }
-                ass2.apply(&mut field);
-                match self.do_solve(&field, max_depth) {
-                    Unsolved(_) => has_unsolved = true,
-                    Solved(res) => {
-                        extend_solutions_from(&mut solutions, res);
-                        if !self.find_all {
-                            return Solved(solutions);
-                        }
-                    }
-                    Controversial => {
-                        reach.set_reachable(&ass1, &ass2.invert());
-                        reach.set_reachable(&ass2, &ass1.invert());
-                    }
-                }
-                ass2.unapply(&mut field);
-            }
-            ass1.unapply(&mut field);
-        }
-
-        if solutions.len() > 0 && !(has_unsolved && self.find_all) {
-            return Solved(solutions);
-        }
-
-        self.apply_impossible_matches(&field, &reach)
-    }
-
     fn do_solve(&self, field: &Field, max_depth: usize) -> SolutionResult {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
@@ -328,10 +237,7 @@ impl Solver {
 
     pub fn solve(&self) -> SolutionResult {
         let field = self.create_field();
-        match self.algorithm {
-            Algorithm::ByLines => self.do_solve_by_lines(&field),
-            _ => self.do_solve(&field, self.max_depth),
-        }
+        self.do_solve(&field, self.max_depth)
     }
 }
 
@@ -348,8 +254,6 @@ fn extend_solutions_from(soluions: &mut MultiSolution, new_solutions: MultiSolut
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use super::*;
 
     impl SolutionResult {
@@ -372,7 +276,6 @@ mod tests {
             vec![vec![3, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 1, 1], vec![1, 3]],
             0,
             false,
-            Algorithm::ByLines,
         );
         solver.solve().assert_solved(&["\
                 #####\n\
@@ -383,11 +286,9 @@ mod tests {
         "]);
     }
 
-    #[rstest]
-    #[case(Algorithm::TwoSat)]
-    #[case(Algorithm::Naive)]
-    fn solve_ambiguous(#[case] algorithm: Algorithm) {
-        let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], 3, true, algorithm);
+    #[test]
+    fn solve_ambiguous() {
+        let solver = Solver::from_hints(vec![vec![1], vec![1]], vec![vec![1], vec![1]], 3, true);
         solver.solve().assert_solved(&[
             "#.\n\
              .#\n",
@@ -397,16 +298,13 @@ mod tests {
     }
 
 
-    #[rstest]
-    #[case(Algorithm::TwoSat)]
-    #[case(Algorithm::Naive)]
-    fn solve_double_ambiguous_naive(#[case] algorithm: Algorithm) {
+    #[test]
+    fn solve_double_ambiguous_naive() {
         let solver = Solver::from_hints(
             vec![vec![1, 1], vec![1, 1]],
             vec![vec![1], vec![1], vec![], vec![1], vec![1]],
             2,
             true,
-            algorithm
         );
         solver.solve().assert_solved(&[
             "#..#.\n\

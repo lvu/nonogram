@@ -2,9 +2,10 @@ use super::assumption::Assumption;
 use super::common::{line_to_str, CellValue, LineHints};
 use crate::nonogram::common::KNOWN;
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
-use std::sync::{Arc, RwLock};
+use std::rc::Rc;
 use CellValue::*;
 use LineType::*;
 
@@ -13,8 +14,8 @@ mod tests;
 
 pub type LineCacheKey = Vec<u8>;
 
-pub type LineCache<S> = Arc<RwLock<HashMap<LineCacheKey, Arc<Option<Vec<Assumption>>>, S>>>;
-pub type LineSolution = Arc<Option<Vec<Assumption>>>;
+pub type LineCache<S> = RefCell<HashMap<LineCacheKey, LineSolution, S>>;
+pub type LineSolution = Rc<Option<Vec<Assumption>>>;
 
 #[derive(Hash, Eq, PartialEq, Copy, Clone)]
 pub enum LineType {
@@ -121,21 +122,20 @@ impl<'a> Line<'a> {
     /// Solves the line to the extent currently possbile.
     ///
     /// Returns updates as a list of Assumption if the line wasn't controversial, None otherwise.
-    pub fn solve<S>(&mut self, cache: LineCache<S>) -> LineSolution
+    pub fn solve<S>(&mut self, cache: &LineCache<S>) -> LineSolution
     where
         S: BuildHasher,
     {
         let cache_key = self.cache_key();
-        let entry = cache.read().unwrap().get(&cache_key).map(|x| x.clone());
+        let entry = cache.borrow().get(&cache_key).map(|x| x.clone());
         match entry {
             Some(result) => result.clone(),
             None => {
                 let result = self.do_solve();
                 cache
-                    .write()
-                    .unwrap()
+                    .borrow_mut()
                     .entry(cache_key)
-                    .or_insert(Arc::new(result))
+                    .or_insert(Rc::new(result))
                     .clone()
             }
         }

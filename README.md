@@ -2,7 +2,7 @@
 
 My hobby project for solving [nonograms](https://en.wikipedia.org/wiki/Nonogram).
 
-There is also a sub-project that recognizes nonograms from the [Katana](https://nonograms-katana.com/) website.
+There is also a sub-project that recognizes nonograms.
 
 ## File format
 
@@ -47,7 +47,10 @@ solutions, or to check if the nonogram has only one solution.
 
 ## OCR
 
-The OCR is written in Python and uses OpenCV library. It takes
+The OCR is written in Python and uses OpenCV library. Use it to avoid manually typing the nonogram descriptions,
+if you want to just solve the puzzle you've found on a website.
+
+Currently, ony the [Katana](https://nonograms-katana.com/) website is supported.
 
 ### Installation
 

@@ -32,7 +32,7 @@ fn main() {
     let start = Instant::now();
     match solver.solve() {
         Solved(fields) => {
-            for fld in fields {
+            for (_, fld) in fields {
                 println!("{}\n", fld.to_string());
             }
         }

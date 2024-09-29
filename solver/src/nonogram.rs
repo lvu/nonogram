@@ -19,7 +19,7 @@ mod field;
 mod line;
 mod reachability_graph;
 
-type MultiSolution = HashSet<Field>;
+type MultiSolution = HashMap<Vec<u8>, Field>;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum SolutionResult {
@@ -157,7 +157,7 @@ impl Solver {
                 Some(changes) => {
                     if changes.is_empty() {
                         return if field.is_solved() {
-                            Solved(HashSet::from([field.into_owned()]))
+                            Solved(HashMap::from([(field.key(), field.into_owned())]))
                         } else {
                             Unsolved(all_changes)
                         };
@@ -191,7 +191,7 @@ impl Solver {
     fn do_naive_step(&self, field: &Field, max_depth: usize) -> SolutionResult {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
-        let mut solutions = HashSet::new();
+        let mut solutions = HashMap::new();
         let mut has_unsolved = false;
         for coords in self.iter_coords() {
             if field.get(coords) != Unknown {
@@ -203,7 +203,7 @@ impl Solver {
                 ass.apply(&mut field);
                 match self.do_solve(&field, max_depth) {
                     Solved(res) => {
-                        solutions.extend(res);
+                        extend_solutions_from(&mut solutions, res);
                         if !self.find_all {
                             return Solved(solutions);
                         }
@@ -254,7 +254,7 @@ impl Solver {
     ) -> SolutionResult {
         let mut field = field.clone();
         let mut reach = ReachabilityGraph::new();
-        let mut solutions = HashSet::new();
+        let mut solutions = HashMap::new();
         let mut has_unsolved = false;
         for ass1 in self.iter_assumptions() {
             if field.get(ass1.coords) != Unknown {
@@ -272,7 +272,7 @@ impl Solver {
                 match self.do_solve(&field, max_depth) {
                     Unsolved(_) => has_unsolved = true,
                     Solved(res) => {
-                        solutions.extend(res);
+                        extend_solutions_from(&mut solutions, res);
                         if !self.find_all {
                             return Solved(solutions);
                         }
@@ -340,6 +340,12 @@ fn apply_changes(changes: &[Assumption], field: &mut Field, all_changes: &mut Ve
     changes.iter().for_each(|ass| ass.apply(field));
 }
 
+fn extend_solutions_from(soluions: &mut MultiSolution, new_solutions: MultiSolution) {
+    new_solutions.into_iter().for_each(|(k, v)| {
+        soluions.entry(k).or_insert(v);
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -350,7 +356,7 @@ mod tests {
         fn assert_solved(&self, results: &[&str]) {
             if let Solved(flds) = self {
                 assert_eq!(
-                    flds.iter().map(|f| f.to_string()).collect::<HashSet<String>>(),
+                    flds.iter().map(|(_, f)| f.to_string()).collect::<HashSet<String>>(),
                     results.iter().map(|x| x.to_string()).collect::<HashSet<String>>()
                 );
             } else {

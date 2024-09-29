@@ -11,6 +11,11 @@ use LineType::*;
 #[cfg(test)]
 mod tests;
 
+pub type LineCacheKey = Vec<u8>;
+
+pub type LineCache<S> = Arc<RwLock<HashMap<LineCacheKey, Arc<Option<Vec<Assumption>>>, S>>>;
+pub type LineSolution = Arc<Option<Vec<Assumption>>>;
+
 #[derive(Hash, Eq, PartialEq, Copy, Clone)]
 pub enum LineType {
     Row,
@@ -77,20 +82,7 @@ impl<'a> Line<'a> {
     }
 
     fn cache_key(&self) -> LineCacheKey {
-        let mut packed_cells = vec![0u8; (self.cells.len() + 3) / 4];
-        let mut idx = 0;
-        for chunk in self.cells.chunks(4) {
-            let c = match chunk {
-                [b1, b2, b3, b4] => ((*b1 as u8) << 6) | ((*b2 as u8) << 4) | ((*b3 as u8) << 2) | (*b4 as u8),
-                [b1, b2, b3] => ((*b1 as u8) << 4) | ((*b2 as u8) << 2) | (*b3 as u8),
-                [b1, b2] => ((*b1 as u8) << 2) | (*b2 as u8),
-                [b1] => *b1 as u8,
-                _ => panic!("Impossible chunk: {chunk:?}"),
-            };
-            packed_cells[idx] = c;
-            idx += 1;
-        }
-        packed_cells
+        line_cache_key(self.cells.as_ref())
     }
 
     fn get_coords(&self, idx: usize) -> (usize, usize) {
@@ -150,7 +142,19 @@ impl<'a> Line<'a> {
     }
 }
 
-type LineCacheKey = Vec<u8>;
-
-pub type LineCache<S> = Arc<RwLock<HashMap<LineCacheKey, Arc<Option<Vec<Assumption>>>, S>>>;
-pub type LineSolution = Arc<Option<Vec<Assumption>>>;
+pub fn line_cache_key(cells: &[CellValue]) -> LineCacheKey {
+    let mut packed_cells = vec![0u8; (cells.len() + 3) / 4];
+    let mut idx = 0;
+    for chunk in cells.chunks(4) {
+        let c = match chunk {
+            [b1, b2, b3, b4] => ((*b1 as u8) << 6) | ((*b2 as u8) << 4) | ((*b3 as u8) << 2) | (*b4 as u8),
+            [b1, b2, b3] => ((*b1 as u8) << 4) | ((*b2 as u8) << 2) | (*b3 as u8),
+            [b1, b2] => ((*b1 as u8) << 2) | (*b2 as u8),
+            [b1] => *b1 as u8,
+            _ => panic!("Impossible chunk: {chunk:?}"),
+        };
+        packed_cells[idx] = c;
+        idx += 1;
+    }
+    packed_cells
+}

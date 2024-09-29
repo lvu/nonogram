@@ -1,4 +1,5 @@
 use super::common::{line_to_str, CellValue, Unknown};
+use super::line::line_cache_key;
 use std::fmt::Display;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -45,5 +46,9 @@ impl Field {
         let (row_idx, col_idx) = coords;
         self.rows[row_idx][col_idx] = val;
         self.cols[col_idx][row_idx] = val;
+    }
+
+    pub fn key(&self) -> Vec<u8> {
+        self.rows.iter().flat_map(|row| line_cache_key(&row)).collect()
     }
 }

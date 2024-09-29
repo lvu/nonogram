@@ -1,4 +1,7 @@
 venv/
 __pycache__/
+samples/
 *.png
 target/
+.vscode/
+.DS_Store

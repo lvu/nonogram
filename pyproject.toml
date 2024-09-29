@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "nono-ocr"
+version = "0.0.1"
+readme = "README.md"
+dependencies = [
+    "pillow",
+    "numpy",
+    "opencv-python",
+]
+
+[project.scripts]
+nono-ocr = "ocr.cli:main"
+
+[tool.setuptools]
+packages = ["ocr"]
+
+[tool.setuptools.package-data]
+ocr = ["*.png"]

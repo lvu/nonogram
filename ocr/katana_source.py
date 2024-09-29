@@ -174,19 +174,7 @@ def parse_numbers(img: np.ndarray, direction: Direction, ocr: DigitOCR) -> list[
 
 
 def read_image(fname: Optional[str]):
-    def save(img):
-        import re
-        from glob import glob
-        img = cv2.cvtColor(img,  cv2.COLOR_BGR2GRAY)
-        _, img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
-        files = glob("./tesseract/*")
-        max_id = max((int(m.group(1))
-            for m in (re.search(r"digit\.katana\.exp(\d+)\.png", f) for f in files)
-            if m
-        ), default=-1)
-        cv2.imwrite(f"./tesseract/digit.katana.exp{max_id + 1}.png", img)
-
-    ocr = DigitOCR(os.path.join(os.path.dirname(__file__), "..", "digits.png"))
+    ocr = DigitOCR(os.path.join(os.path.dirname(__file__), "digits.png"))
     pil_img: Image.Image
     if fname:
         pil_img = Image.open(fname)

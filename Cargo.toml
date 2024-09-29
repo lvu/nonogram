@@ -1,7 +1,11 @@
 [package]
-name = "solver"
+name = "nono-solver"
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "nono-solver"
+path = "solver/main.rs"
 
 [dependencies]
 ahash = "0.8.11"

@@ -1,4 +1,5 @@
 import os.path
+import sys
 from enum import auto, Enum
 from itertools import groupby
 from string import digits
@@ -126,13 +127,20 @@ def find_number_rects(img: np.ndarray, direction: Direction) -> list[list[[Rect]
 
     _, img = cv2.threshold(img, 0xB0, 0xFF, cv2.THRESH_BINARY)
     conts, _  = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
     rects: list[Rect] = []
     for cont in conts:
         rect = Rect(*cv2.boundingRect(cont))
-        if cv2.contourArea(cont) and 0.9 < rect.w / rect.h < 1.1 and rect.w * rect.h / cv2.contourArea(cont) < 1.2:
+        if cv2.contourArea(cont) and 0.9 < rect.w / rect.h < 1.1 and rect.w * rect.h / cv2.contourArea(cont) < 1.5:
             rects.append(rect)
         else:
-            print("Skipped contour", cv2.contourArea(cont), rect.w / rect.h, rect.w * rect.h / (cv2.contourArea(cont) + 0.1))
+            print(
+                "Skipped contour",
+                cv2.contourArea(cont),
+                rect.w / rect.h,
+                rect.w * rect.h / (cv2.contourArea(cont) + 0.1),
+                file=sys.stderr
+            )
 
     line_map = cluster_1d(sorted({line_coord(r) for r in rects}))
 

@@ -128,15 +128,15 @@ impl Solver {
         Some(all_changes)
     }
 
-    fn do_solve_by_lines(&self, field: &Field) -> SolutionResult {
+    fn do_solve_by_lines(&self, field: &Field, changed_rows: &HashSet<usize>, changed_cols: &HashSet<usize>) -> SolutionResult {
         let mut field = Cow::Borrowed(field);
         let mut all_changes: Vec<Assumption> = Vec::new();
-        match self.do_solve_by_lines_step(&mut field, Row, 0..self.nrows()) {
+        match self.do_solve_by_lines_step(&mut field, Row, changed_rows.iter().copied()) {
             None => return Controversial,
             Some(changes) => all_changes.extend(changes),
         }
         let mut line_type = Col;
-        let mut changed_idxs: HashSet<usize> = (0..self.ncols()).collect();
+        let mut changed_idxs = changed_cols.clone();
         loop {
             match self.do_solve_by_lines_step(&mut field, line_type, changed_idxs.into_iter()) {
                 None => return Controversial,
@@ -165,6 +165,8 @@ impl Solver {
         let mut all_changes = Vec::new();
         let mut solutions = HashMap::new();
         let mut has_unsolved = false;
+        let mut changed_rows = vec![0u8; self.nrows()];
+        let mut changed_cols = vec![0u8; self.ncols()];
         for coords in self.iter_coords() {
             if field.get(coords) != Unknown {
                 continue;
@@ -173,17 +175,25 @@ impl Solver {
             for val in KNOWN {
                 let ass = Assumption { coords, val };
                 ass.apply(&mut field);
-                match self.do_solve(&field, max_depth) {
+                changed_rows[ass.coords.0] += 1;
+                changed_cols[ass.coords.1] += 1;
+                let cr = changed_rows.iter().enumerate().filter(|(_, &v)| v > 0).map(|(idx, _)| idx).collect();
+                let cc = changed_cols.iter().enumerate().filter(|(_, &v)| v > 0).map(|(idx, _)| idx).collect();
+                match self.do_solve(&field, max_depth, &cr, &cc) {
                     Solved(res) => {
                         extend_solutions_from(&mut solutions, res);
                         if !self.find_all {
                             return Solved(solutions);
                         }
                         ass.unapply(&mut field);
+                        changed_rows[ass.coords.0] -= 1;
+                        changed_cols[ass.coords.1] -= 1;
                     }
                     Unsolved(_) => {
                         has_unsolved = true;
                         ass.unapply(&mut field);
+                        changed_rows[ass.coords.0] -= 1;
+                        changed_cols[ass.coords.1] -= 1;
                     }
                     Controversial => {
                         if has_controversy {
@@ -203,12 +213,14 @@ impl Solver {
         }
     }
 
-    fn do_solve(&self, field: &Field, max_depth: usize) -> SolutionResult {
+    fn do_solve(&self, field: &Field, max_depth: usize, changed_rows: &HashSet<usize>, changed_cols: &HashSet<usize>) -> SolutionResult {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
+        let mut changed_rows = Cow::Borrowed(changed_rows);
+        let mut changed_cols = Cow::Borrowed(changed_cols);
 
         'outer: loop {
-            let by_lines = self.do_solve_by_lines(&field);
+            let by_lines = self.do_solve_by_lines(&field, changed_rows.as_ref(), changed_cols.as_ref());
             match by_lines {
                 Controversial | Solved(_) => return by_lines,
                 Unsolved(changes) => {
@@ -219,6 +231,8 @@ impl Solver {
                 }
             }
 
+            changed_rows.to_mut().clear();
+            changed_cols.to_mut().clear();
             for depth in 0..max_depth {
                 let by_step = self.do_step(&field, depth);
                 match by_step {
@@ -226,6 +240,8 @@ impl Solver {
                     Unsolved(changes) => {
                         if !changes.is_empty() {
                             apply_changes(&changes, &mut field, &mut all_changes);
+                            changed_rows.to_mut().extend(changes.iter().map(|ass| ass.coords.0));
+                            changed_cols.to_mut().extend(changes.iter().map(|ass| ass.coords.1));
                             continue 'outer;
                         }
                     }
@@ -236,8 +252,12 @@ impl Solver {
     }
 
     pub fn solve(&self) -> SolutionResult {
-        let field = self.create_field();
-        self.do_solve(&field, self.max_depth)
+        self.do_solve(
+            &self.create_field(),
+            self.max_depth,
+            &(0..self.nrows()).collect(),
+            &(0..self.ncols()).collect(),
+        )
     }
 }
 

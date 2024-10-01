@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use std::io;
 use std::ops::DerefMut;
-use LineType::*;
 use InternalSolution::*;
+use LineType::*;
 
 mod assumption;
 mod common;
@@ -50,33 +50,16 @@ pub struct Solver {
 }
 
 impl Solver {
-    pub fn from_reader<R: io::Read>(
-        rdr: R,
-        max_depth: usize,
-        find_all: bool,
-    ) -> Result<Self, serde_json::Error> {
+    pub fn from_reader<R: io::Read>(rdr: R, max_depth: usize, find_all: bool) -> Result<Self, serde_json::Error> {
         let descr: NonoDescription = serde_json::from_reader(rdr)?;
-        Ok(Self::from_hints(
-            descr.row_hints,
-            descr.col_hints,
-            max_depth,
-            find_all,
-        ))
+        Ok(Self::from_hints(descr.row_hints, descr.col_hints, max_depth, find_all))
     }
 
-    fn from_hints(
-        row_hints: Vec<LineHints>,
-        col_hints: Vec<LineHints>,
-        max_depth: usize,
-        find_all: bool,
-    ) -> Self {
-        let row_cache = (0..row_hints.len())
-            .map(|_| RefCell::new(HashMap::default()))
-            .collect();
-        let col_cache = (0..col_hints.len())
-            .map(|_| RefCell::new(HashMap::default()))
-            .collect();
-        Self { row_hints, col_hints, row_cache, col_cache, max_depth, find_all, solutions: RefCell::new(HashMap::new()) }
+    fn from_hints(row_hints: Vec<LineHints>, col_hints: Vec<LineHints>, max_depth: usize, find_all: bool) -> Self {
+        let row_cache = (0..row_hints.len()).map(|_| RefCell::new(HashMap::default())).collect();
+        let col_cache = (0..col_hints.len()).map(|_| RefCell::new(HashMap::default())).collect();
+        let solutions = RefCell::new(HashMap::new());
+        Self { row_hints, col_hints, row_cache, col_cache, max_depth, find_all, solutions }
     }
 
     pub fn create_field(&self) -> Field {
@@ -120,7 +103,11 @@ impl Solver {
         line_changes: &[u8],
     ) -> Option<Vec<Assumption>> {
         let mut all_changes: Vec<Assumption> = Vec::new();
-        for line_idx in line_changes.iter().enumerate().filter_map(|(idx, &val)| if val > 0 { Some(idx) } else { None }) {
+        for line_idx in line_changes
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, &val)| if val > 0 { Some(idx) } else { None })
+        {
             let mut line = self.line(&field, line_type, line_idx);
             match line.solve(self.cache(line_type, line_idx)).as_ref() {
                 Some(changes) if !changes.is_empty() => {
@@ -151,10 +138,16 @@ impl Solver {
                             field.store_solution(self.solutions.borrow_mut().deref_mut());
                             return Solved;
                         }
-                        return Unsolved(all_changes)
+                        return Unsolved(all_changes);
                     }
                     changed_idxs.clear();
-                    changed_idxs.resize(match line_type.other() { Row => self.nrows(), Col => self.ncols() }, 0);
+                    changed_idxs.resize(
+                        match line_type.other() {
+                            Row => self.nrows(),
+                            Col => self.ncols(),
+                        },
+                        0,
+                    );
                     for ass in changes.iter() {
                         changed_idxs[ass.line_idx(line_type.other())] += 1;
                     }
@@ -236,8 +229,8 @@ impl Solver {
                 }
             }
 
-            changed_rows.to_mut().iter_mut().for_each(|v| *v=0);
-            changed_cols.to_mut().iter_mut().for_each(|v| *v=0);
+            changed_rows.to_mut().iter_mut().for_each(|v| *v = 0);
+            changed_cols.to_mut().iter_mut().for_each(|v| *v = 0);
             for depth in 0..max_depth {
                 let by_step = self.do_step(&field, depth);
                 match by_step {
@@ -254,7 +247,7 @@ impl Solver {
                     }
                 }
             }
-            return Unsolved(all_changes)
+            return Unsolved(all_changes);
         }
     }
 
@@ -327,7 +320,6 @@ mod tests {
              #.\n",
         ]);
     }
-
 
     #[test]
     fn solve_double_ambiguous_naive() {

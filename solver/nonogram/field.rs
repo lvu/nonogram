@@ -14,7 +14,6 @@ impl Display for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for row_idx in 0..self.nrows {
             writeln!(f, "{}", line_to_str(self.row(row_idx)))?;
-
         }
         Ok(())
     }
@@ -22,12 +21,7 @@ impl Display for Field {
 
 impl Field {
     pub fn new(nrows: usize, ncols: usize) -> Self {
-        Self {
-            nrows,
-            ncols,
-            rows: vec![Unknown; nrows * ncols],
-            cols: vec![Unknown; nrows * ncols],
-        }
+        Self { nrows, ncols, rows: vec![Unknown; nrows * ncols], cols: vec![Unknown; nrows * ncols] }
     }
 
     pub fn is_solved(&self) -> bool {
@@ -35,11 +29,11 @@ impl Field {
     }
 
     pub fn row(&self, idx: usize) -> &[CellValue] {
-        &self.rows[idx * self.ncols .. (idx + 1) * self.ncols]
+        &self.rows[idx * self.ncols..(idx + 1) * self.ncols]
     }
 
     pub fn col(&self, idx: usize) -> &[CellValue] {
-        &self.cols[idx * self.nrows .. (idx + 1) * self.nrows]
+        &self.cols[idx * self.nrows..(idx + 1) * self.nrows]
     }
 
     pub fn get(&self, coords: (usize, usize)) -> CellValue {

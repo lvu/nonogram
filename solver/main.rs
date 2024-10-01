@@ -18,12 +18,7 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
     let solver = match cli.fname {
-        Some(fname) => Solver::from_reader(
-            std::fs::File::open(fname).unwrap(),
-            cli.max_depth,
-            cli.find_all,
-        )
-        .unwrap(),
+        Some(fname) => Solver::from_reader(std::fs::File::open(fname).unwrap(), cli.max_depth, cli.find_all).unwrap(),
         None => Solver::from_reader(io::stdin(), cli.max_depth, cli.find_all).expect("Malformed input"),
     };
     let start = Instant::now();

@@ -124,13 +124,9 @@ impl<'a> Line<'a> {
         match entry {
             Some(result) => result.clone(),
             None => {
-                let key =  Vec::from(self.cells.as_ref());
+                let key = Vec::from(self.cells.as_ref());
                 let result = self.do_solve();
-                cache
-                    .borrow_mut()
-                    .entry(key)
-                    .or_insert(Rc::new(result))
-                    .clone()
+                cache.borrow_mut().entry(key).or_insert(Rc::new(result)).clone()
             }
         }
     }

@@ -47,13 +47,13 @@ impl<'a> Line<'a> {
         line_to_str(&self.cells)
     }
 
-    fn do_verify(&self, hint_idx: usize, cells_offset: usize) -> bool {
+    fn do_verify(&self, hint_idx: usize, cells_offset: usize, last_filled: Option<usize>) -> bool {
         if cells_offset >= self.cells.len() {
             return hint_idx == self.hints.len();
         }
         let cells = &self.cells[cells_offset..];
         if hint_idx == self.hints.len() {
-            return cells.iter().all(|&x| x != Filled);
+            return last_filled.map_or(true, |lf| cells_offset > lf);
         }
         let current_hint = self.hints[hint_idx];
         let size = cells.len();
@@ -65,7 +65,7 @@ impl<'a> Line<'a> {
             let end = start + current_hint;
             if cells[start..end].iter().all(|&x| x != Empty)
                 && (end == size || cells[end] != Filled)
-                && self.do_verify(hint_idx + 1, cells_offset + end + 1)
+                && self.do_verify(hint_idx + 1, cells_offset + end + 1, last_filled)
             {
                 return true;
             }
@@ -76,8 +76,8 @@ impl<'a> Line<'a> {
         false
     }
 
-    fn verify(&self) -> bool {
-        self.do_verify(0, 0)
+    fn verify(&self, last_filled: Option<usize>) -> bool {
+        self.do_verify(0, 0, last_filled)
     }
 
     fn get_coords(&self, idx: usize) -> (usize, usize) {
@@ -87,8 +87,18 @@ impl<'a> Line<'a> {
         }
     }
 
+    fn get_last_filled(&self) -> Option<usize> {
+        self.cells
+            .iter()
+            .enumerate()
+            .filter(|(_, &v)| v == Filled)
+            .map(|(idx, _)| idx)
+            .last()
+    }
+
     fn do_solve(&mut self) -> Option<Vec<Assumption>> {
-        if !self.verify() {
+        let mut last_filled = self.get_last_filled();
+        if !self.verify(last_filled) {
             return None;
         }
         let mut result = Vec::new();
@@ -99,17 +109,23 @@ impl<'a> Line<'a> {
 
             for &val in KNOWN.iter() {
                 self.cells.to_mut()[idx] = val;
-                if !self.verify() {
+                if !self.verify(match val {
+                    Filled => Some(opt_max(last_filled, idx)),
+                    _ => last_filled,
+                }) {
                     let new_val = val.invert();
                     self.cells.to_mut()[idx] = new_val;
                     result.push(Assumption { coords: self.get_coords(idx), val: new_val });
+                    if new_val == Filled {
+                        last_filled = Some(opt_max(last_filled, idx));
+                    }
                     continue 'idxs;
                 }
             }
 
             self.cells.to_mut()[idx] = Unknown;
         }
-        debug_assert!(self.verify());
+        debug_assert!(self.verify(last_filled));
         Some(result)
     }
 
@@ -130,4 +146,8 @@ impl<'a> Line<'a> {
             }
         }
     }
+}
+
+fn opt_max<T: Ord + Copy>(a: Option<T>, b: T) -> T {
+    a.map_or(b, |v| v.max(b))
 }

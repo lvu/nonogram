@@ -106,7 +106,8 @@ impl Solver {
         for line_idx in line_changes
             .iter()
             .enumerate()
-            .filter_map(|(idx, &val)| if val > 0 { Some(idx) } else { None })
+            .filter(|(_, &val)| val > 0)
+            .map(|(idx, _)| idx)
         {
             let mut line = self.line(&field, line_type, line_idx);
             match line.solve(self.cache(line_type, line_idx)).as_ref() {

@@ -42,55 +42,55 @@ fn serialization_fails() {
 #[test]
 fn verify_plenty_space() {
     let ol = OwnedLine::create(vec![2, 3], "~~~~~~").unwrap();
-    assert!(ol.line().verify());
+    assert!(ol.line().verify(ol.line().get_last_filled()));
 }
 
 #[test]
 fn verify_not_enough_space() {
     let ol = OwnedLine::create(vec![2, 3], "~~~~~").unwrap();
-    assert!(!ol.line().verify());
+    assert!(!ol.line().verify(ol.line().get_last_filled()));
 }
 
 #[test]
 fn verify_separated_enough_space() {
     let ol = OwnedLine::create(vec![2, 3], ".~~.~#~.").unwrap();
-    assert!(ol.line().verify());
+    assert!(ol.line().verify(ol.line().get_last_filled()));
 }
 
 #[test]
 fn verify_separated_not_enough_space() {
     let ol = OwnedLine::create(vec![2, 3], ".~~.#~.").unwrap();
-    assert!(!ol.line().verify());
+    assert!(!ol.line().verify(ol.line().get_last_filled()));
 }
 
 #[test]
 fn verify_unsatisfialble_filled() {
     let ol = OwnedLine::create(vec![2, 3], "~~#~~~").unwrap();
-    assert!(!ol.line().verify());
+    assert!(!ol.line().verify(ol.line().get_last_filled()));
 }
 
 #[test]
 fn verify_unsatisfialble_filled_with_frame() {
     let ol = OwnedLine::create(vec![2, 3], ".~~#~~~.").unwrap();
-    assert!(!ol.line().verify());
+    assert!(!ol.line().verify(ol.line().get_last_filled()));
 }
 
 #[test]
 fn verify_split_with_badly_filled_left() {
     let ol = OwnedLine::create(vec![2, 3], "#~~#.~~~").unwrap();
-    assert!(!ol.line().verify());
+    assert!(!ol.line().verify(ol.line().get_last_filled()));
 }
 
 #[test]
 fn verify_too_many_filled() {
     let ol = OwnedLine::create(vec![2, 3], "#~~.~#~.#").unwrap();
-    assert!(!ol.line().verify());
+    assert!(!ol.line().verify(ol.line().get_last_filled()));
 }
 
 #[test]
 fn verify_split_with_fine_left() {
     let ol = OwnedLine::create(vec![2, 3], "#~~#.~~").unwrap();
-    assert!(!ol.line().verify());
+    assert!(!ol.line().verify(ol.line().get_last_filled()));
 }
 
 #[test]

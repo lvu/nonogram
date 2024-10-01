@@ -1,4 +1,5 @@
 use super::common::{line_to_str, CellValue, Unknown};
+use std::collections::HashMap;
 use std::fmt::Display;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
@@ -52,7 +53,9 @@ impl Field {
         self.cols[col_idx * self.nrows + row_idx] = val;
     }
 
-    pub fn key(&self) -> Vec<CellValue> {
-        self.rows.clone()
+    pub fn store_solution(&self, solutions: &mut HashMap<Vec<CellValue>, Field>) {
+        if !solutions.contains_key(&self.rows) {
+            solutions.insert(self.rows.clone(), self.clone());
+        }
     }
 }

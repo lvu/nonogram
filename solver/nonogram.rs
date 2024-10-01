@@ -6,26 +6,30 @@ use itertools::Itertools;
 use line::{Line, LineCache, LineType};
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use std::io;
+use std::ops::DerefMut;
 use LineType::*;
+use InternalSolution::*;
 
 mod assumption;
 mod common;
 mod field;
 mod line;
 
-type MultiSolution = HashMap<Vec<CellValue>, Field>;
-
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub enum SolutionResult {
+#[derive(Debug)]
+pub enum Solution {
     Controversial,
-    Unsolved(Vec<Assumption>),
-    Solved(MultiSolution),
+    Unsolved(Field),
+    Solved(Vec<Field>),
 }
 
-pub use SolutionResult::*;
+enum InternalSolution {
+    Controversial,
+    Unsolved(Vec<Assumption>),
+    Solved,
+}
 
 type ABuildHasher = BuildHasherDefault<AHasher>;
 
@@ -42,6 +46,7 @@ pub struct Solver {
     col_cache: Vec<LineCache<ABuildHasher>>,
     max_depth: usize,
     find_all: bool,
+    pub solutions: RefCell<HashMap<Vec<CellValue>, Field>>,
 }
 
 impl Solver {
@@ -71,7 +76,7 @@ impl Solver {
         let col_cache = (0..col_hints.len())
             .map(|_| RefCell::new(HashMap::default()))
             .collect();
-        Self { row_hints, col_hints, row_cache, col_cache, max_depth, find_all }
+        Self { row_hints, col_hints, row_cache, col_cache, max_depth, find_all, solutions: RefCell::new(HashMap::new()) }
     }
 
     pub fn create_field(&self) -> Field {
@@ -128,7 +133,7 @@ impl Solver {
         Some(all_changes)
     }
 
-    fn do_solve_by_lines(&self, field: &Field, changed_rows: &[u8], changed_cols: &[u8]) -> SolutionResult {
+    fn do_solve_by_lines(&self, field: &Field, changed_rows: &[u8], changed_cols: &[u8]) -> InternalSolution {
         let mut field = Cow::Borrowed(field);
         let mut all_changes: Vec<Assumption> = Vec::new();
         match self.do_solve_by_lines_step(&mut field, Row, changed_rows) {
@@ -142,14 +147,14 @@ impl Solver {
                 None => return Controversial,
                 Some(changes) => {
                     if changes.is_empty() {
-                        return if field.is_solved() {
-                            Solved(HashMap::from([(field.key(), field.into_owned())]))
-                        } else {
-                            Unsolved(all_changes)
-                        };
+                        if field.is_solved() {
+                            field.store_solution(self.solutions.borrow_mut().deref_mut());
+                            return Solved;
+                        }
+                        return Unsolved(all_changes)
                     }
                     changed_idxs.clear();
-                    changed_idxs.resize(match line_type { Row => self.nrows(), Col => self.ncols() }, 0);
+                    changed_idxs.resize(match line_type.other() { Row => self.nrows(), Col => self.ncols() }, 0);
                     for ass in changes.iter() {
                         changed_idxs[ass.line_idx(line_type.other())] += 1;
                     }
@@ -164,10 +169,9 @@ impl Solver {
         (0..self.nrows()).cartesian_product(0..self.ncols())
     }
 
-    fn do_step(&self, field: &Field, max_depth: usize) -> SolutionResult {
+    fn do_step(&self, field: &Field, max_depth: usize) -> InternalSolution {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
-        let mut solutions = HashMap::new();
         let mut has_unsolved = false;
         let mut changed_rows = vec![0u8; self.nrows()];
         let mut changed_cols = vec![0u8; self.ncols()];
@@ -182,10 +186,9 @@ impl Solver {
                 changed_rows[ass.coords.0] += 1;
                 changed_cols[ass.coords.1] += 1;
                 match self.do_solve(&field, max_depth, &changed_rows, &changed_cols) {
-                    Solved(res) => {
-                        extend_solutions_from(&mut solutions, res);
+                    Solved => {
                         if !self.find_all {
-                            return Solved(solutions);
+                            return Solved;
                         }
                         ass.unapply(&mut field);
                         changed_rows[ass.coords.0] -= 1;
@@ -208,14 +211,14 @@ impl Solver {
                 }
             }
         }
-        if !solutions.is_empty() && !(has_unsolved && self.find_all) {
-            Solved(solutions)
+        if !self.solutions.borrow().is_empty() && !(has_unsolved && self.find_all) {
+            Solved
         } else {
             Unsolved(all_changes)
         }
     }
 
-    fn do_solve(&self, field: &Field, max_depth: usize, changed_rows: &[u8], changed_cols: &[u8]) -> SolutionResult {
+    fn do_solve(&self, field: &Field, max_depth: usize, changed_rows: &[u8], changed_cols: &[u8]) -> InternalSolution {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
         let mut changed_rows = Cow::Borrowed(changed_rows);
@@ -224,7 +227,7 @@ impl Solver {
         'outer: loop {
             let by_lines = self.do_solve_by_lines(&field, changed_rows.as_ref(), changed_cols.as_ref());
             match by_lines {
-                Controversial | Solved(_) => return by_lines,
+                Controversial | Solved => return by_lines,
                 Unsolved(changes) => {
                     if max_depth == 0 {
                         return Unsolved(changes);
@@ -238,7 +241,7 @@ impl Solver {
             for depth in 0..max_depth {
                 let by_step = self.do_step(&field, depth);
                 match by_step {
-                    Solved(_) | Controversial => return by_step,
+                    Solved | Controversial => return by_step,
                     Unsolved(changes) => {
                         if !changes.is_empty() {
                             apply_changes(&changes, &mut field, &mut all_changes);
@@ -255,13 +258,21 @@ impl Solver {
         }
     }
 
-    pub fn solve(&self) -> SolutionResult {
-        self.do_solve(
+    pub fn solve(self) -> Solution {
+        match self.do_solve(
             &self.create_field(),
             self.max_depth,
             &vec![1; self.nrows()],
             &vec![1; self.ncols()],
-        )
+        ) {
+            Controversial => Solution::Controversial,
+            Solved => Solution::Solved(self.solutions.borrow().iter().map(|(_, fld)| fld.clone()).collect()),
+            Unsolved(changes) => {
+                let mut fld = self.create_field();
+                changes.iter().for_each(|ass| ass.apply(&mut fld));
+                Solution::Unsolved(fld)
+            }
+        }
     }
 }
 
@@ -270,21 +281,17 @@ fn apply_changes(changes: &[Assumption], field: &mut Field, all_changes: &mut Ve
     changes.iter().for_each(|ass| ass.apply(field));
 }
 
-fn extend_solutions_from(soluions: &mut MultiSolution, new_solutions: MultiSolution) {
-    new_solutions.into_iter().for_each(|(k, v)| {
-        soluions.entry(k).or_insert(v);
-    });
-}
-
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
 
-    impl SolutionResult {
+    impl Solution {
         fn assert_solved(&self, results: &[&str]) {
-            if let Solved(flds) = self {
+            if let Solution::Solved(flds) = self {
                 assert_eq!(
-                    flds.iter().map(|(_, f)| f.to_string()).collect::<HashSet<String>>(),
+                    flds.iter().map(|f| f.to_string()).collect::<HashSet<String>>(),
                     results.iter().map(|x| x.to_string()).collect::<HashSet<String>>()
                 );
             } else {

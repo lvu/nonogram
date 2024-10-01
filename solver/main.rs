@@ -1,8 +1,8 @@
 use clap::Parser;
-use nonogram::{SolutionResult, Solver};
+use nonogram::{Solution, Solver};
 use std::io;
 use std::time::Instant;
-use SolutionResult::*;
+use Solution::*;
 
 mod nonogram;
 
@@ -29,13 +29,11 @@ fn main() {
     let start = Instant::now();
     match solver.solve() {
         Solved(fields) => {
-            for (_, fld) in fields {
+            for fld in fields {
                 println!("{}\n", fld.to_string());
             }
         }
-        Unsolved(changes) => {
-            let mut fld = solver.create_field();
-            changes.iter().for_each(|ass| ass.apply(&mut fld));
+        Unsolved(fld) => {
             println!("Cannot solve; info so far: \n{}", fld.to_string())
         }
         Controversial => println!("Controversial"),

@@ -112,10 +112,10 @@ impl Solver {
         &self,
         field: &mut Cow<Field>,
         line_type: LineType,
-        line_idxs: impl Iterator<Item = usize>,
+        line_changes: &[u8],
     ) -> Option<Vec<Assumption>> {
         let mut all_changes: Vec<Assumption> = Vec::new();
-        for line_idx in line_idxs {
+        for line_idx in line_changes.iter().enumerate().filter_map(|(idx, &val)| if val > 0 { Some(idx) } else { None }) {
             let mut line = self.line(&field, line_type, line_idx);
             match line.solve(self.cache(line_type, line_idx)).as_ref() {
                 Some(changes) if !changes.is_empty() => {
@@ -128,17 +128,17 @@ impl Solver {
         Some(all_changes)
     }
 
-    fn do_solve_by_lines(&self, field: &Field, changed_rows: &HashSet<usize>, changed_cols: &HashSet<usize>) -> SolutionResult {
+    fn do_solve_by_lines(&self, field: &Field, changed_rows: &[u8], changed_cols: &[u8]) -> SolutionResult {
         let mut field = Cow::Borrowed(field);
         let mut all_changes: Vec<Assumption> = Vec::new();
-        match self.do_solve_by_lines_step(&mut field, Row, changed_rows.iter().copied()) {
+        match self.do_solve_by_lines_step(&mut field, Row, changed_rows) {
             None => return Controversial,
             Some(changes) => all_changes.extend(changes),
         }
         let mut line_type = Col;
-        let mut changed_idxs = changed_cols.clone();
+        let mut changed_idxs = Vec::from(changed_cols);
         loop {
-            match self.do_solve_by_lines_step(&mut field, line_type, changed_idxs.into_iter()) {
+            match self.do_solve_by_lines_step(&mut field, line_type, &changed_idxs) {
                 None => return Controversial,
                 Some(changes) => {
                     if changes.is_empty() {
@@ -148,7 +148,11 @@ impl Solver {
                             Unsolved(all_changes)
                         };
                     }
-                    changed_idxs = changes.iter().map(|ass| ass.line_idx(line_type.other())).collect();
+                    changed_idxs.clear();
+                    changed_idxs.resize(match line_type { Row => self.nrows(), Col => self.ncols() }, 0);
+                    for ass in changes.iter() {
+                        changed_idxs[ass.line_idx(line_type.other())] += 1;
+                    }
                     all_changes.extend(changes);
                 }
             }
@@ -177,9 +181,7 @@ impl Solver {
                 ass.apply(&mut field);
                 changed_rows[ass.coords.0] += 1;
                 changed_cols[ass.coords.1] += 1;
-                let cr = changed_rows.iter().enumerate().filter(|(_, &v)| v > 0).map(|(idx, _)| idx).collect();
-                let cc = changed_cols.iter().enumerate().filter(|(_, &v)| v > 0).map(|(idx, _)| idx).collect();
-                match self.do_solve(&field, max_depth, &cr, &cc) {
+                match self.do_solve(&field, max_depth, &changed_rows, &changed_cols) {
                     Solved(res) => {
                         extend_solutions_from(&mut solutions, res);
                         if !self.find_all {
@@ -213,7 +215,7 @@ impl Solver {
         }
     }
 
-    fn do_solve(&self, field: &Field, max_depth: usize, changed_rows: &HashSet<usize>, changed_cols: &HashSet<usize>) -> SolutionResult {
+    fn do_solve(&self, field: &Field, max_depth: usize, changed_rows: &[u8], changed_cols: &[u8]) -> SolutionResult {
         let mut field = field.clone();
         let mut all_changes = Vec::new();
         let mut changed_rows = Cow::Borrowed(changed_rows);
@@ -231,8 +233,8 @@ impl Solver {
                 }
             }
 
-            changed_rows.to_mut().clear();
-            changed_cols.to_mut().clear();
+            changed_rows.to_mut().iter_mut().for_each(|v| *v=0);
+            changed_cols.to_mut().iter_mut().for_each(|v| *v=0);
             for depth in 0..max_depth {
                 let by_step = self.do_step(&field, depth);
                 match by_step {
@@ -240,8 +242,10 @@ impl Solver {
                     Unsolved(changes) => {
                         if !changes.is_empty() {
                             apply_changes(&changes, &mut field, &mut all_changes);
-                            changed_rows.to_mut().extend(changes.iter().map(|ass| ass.coords.0));
-                            changed_cols.to_mut().extend(changes.iter().map(|ass| ass.coords.1));
+                            for ass in changes {
+                                changed_rows.to_mut()[ass.coords.0] += 1;
+                                changed_cols.to_mut()[ass.coords.1] += 1;
+                            }
                             continue 'outer;
                         }
                     }
@@ -255,8 +259,8 @@ impl Solver {
         self.do_solve(
             &self.create_field(),
             self.max_depth,
-            &(0..self.nrows()).collect(),
-            &(0..self.ncols()).collect(),
+            &vec![1; self.nrows()],
+            &vec![1; self.ncols()],
         )
     }
 }

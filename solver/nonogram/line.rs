@@ -12,12 +12,10 @@ use LineType::*;
 #[cfg(test)]
 mod tests;
 
-pub type LineCacheKey = Vec<u8>;
-
-pub type LineCache<S> = RefCell<HashMap<LineCacheKey, LineSolution, S>>;
+pub type LineCache<S> = RefCell<HashMap<Vec<CellValue>, LineSolution, S>>;
 pub type LineSolution = Rc<Option<Vec<Assumption>>>;
 
-#[derive(Hash, Eq, PartialEq, Copy, Clone)]
+#[derive(Hash, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum LineType {
     Row,
     Col,
@@ -82,10 +80,6 @@ impl<'a> Line<'a> {
         self.do_verify(0, 0)
     }
 
-    fn cache_key(&self) -> LineCacheKey {
-        line_cache_key(self.cells.as_ref())
-    }
-
     fn get_coords(&self, idx: usize) -> (usize, usize) {
         match self.line_type {
             Row => (self.line_idx, idx),
@@ -126,35 +120,18 @@ impl<'a> Line<'a> {
     where
         S: BuildHasher,
     {
-        let cache_key = self.cache_key();
-        let entry = cache.borrow().get(&cache_key).map(|x| x.clone());
+        let entry = cache.borrow().get(self.cells.as_ref()).map(|x| x.clone());
         match entry {
             Some(result) => result.clone(),
             None => {
+                let key =  Vec::from(self.cells.as_ref());
                 let result = self.do_solve();
                 cache
                     .borrow_mut()
-                    .entry(cache_key)
+                    .entry(key)
                     .or_insert(Rc::new(result))
                     .clone()
             }
         }
     }
-}
-
-pub fn line_cache_key(cells: &[CellValue]) -> LineCacheKey {
-    let mut packed_cells = vec![0u8; (cells.len() + 3) / 4];
-    let mut idx = 0;
-    for chunk in cells.chunks(4) {
-        let c = match chunk {
-            [b1, b2, b3, b4] => ((*b1 as u8) << 6) | ((*b2 as u8) << 4) | ((*b3 as u8) << 2) | (*b4 as u8),
-            [b1, b2, b3] => ((*b1 as u8) << 4) | ((*b2 as u8) << 2) | (*b3 as u8),
-            [b1, b2] => ((*b1 as u8) << 2) | (*b2 as u8),
-            [b1] => *b1 as u8,
-            _ => panic!("Impossible chunk: {chunk:?}"),
-        };
-        packed_cells[idx] = c;
-        idx += 1;
-    }
-    packed_cells
 }

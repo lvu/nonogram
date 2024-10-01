@@ -1,6 +1,6 @@
 use ahash::AHasher;
 use assumption::Assumption;
-use common::{LineHints, Unknown, KNOWN};
+use common::{CellValue, LineHints, Unknown, KNOWN};
 use field::Field;
 use itertools::Itertools;
 use line::{Line, LineCache, LineType};
@@ -16,7 +16,7 @@ mod common;
 mod field;
 mod line;
 
-type MultiSolution = HashMap<Vec<u8>, Field>;
+type MultiSolution = HashMap<Vec<CellValue>, Field>;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum SolutionResult {
